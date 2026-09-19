@@ -1,22 +1,25 @@
 # Plan — 2-day build (started 2026-09-19)
 
 ## Next session
-M0–M3 done; M4 code is written, tested (124 pytest) and deployed, but **blocked on two user steps** (below).
-Then: (1) `python scripts/seed_supabase.py`; (2) run the API locally against Supabase (`uvicorn api.index:app --port 8000`,
-`python scripts/cloud_run.py --base http://127.0.0.1:8000`); (3) once Vercel env vars are set, `python scripts/cloud_run.py`
-against the deployed app and confirm the exported submission scores ~1.000; (4) review round-trip on a scan case
-(email_512–514: `POST /api/py/reviews/{id}`); (5) log results here + DECISIONS, tick M4. Supabase-specific code
-(`SupabaseRepo.list_emails` embedding/filters, `SupabaseStore`, upserts) is verified only by fakes so far.
-Then M5 (UI). Models are swapped via `.env` (see `.env.example`), never in code.
-Suggested opening prompt: "Read docs/PLAN.md and finish M4 (schema applied, env vars set), then M5. Plan first."
+M0–M3 done. M4 is verified end to end **locally against real Supabase** (schema applied, 520 emails + 250 attachments +
+140 cache rows seeded, all 520 processed via the API, export scored 1.0000, 0 errors, 20 in review queue, review round-trip
+on email_512 recomputed status + wrote audit row; test edit reverted). **Only remaining M4 item:** the deployed Vercel app
+(`/api/py/health` -> `configured`) still shows all four env vars `false` in production, so its data routes return 503.
+Fix = user adds `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY` under Project ->
+Settings -> Environment Variables with the **Production** box ticked (check it is the `monash-hackathon` project),
+then Redeploy. Then run `python scripts/cloud_run.py` (defaults to the deployed URL; use `--reprocess` to recompute in
+the cloud) and confirm ~1.000; tick M4. Then M5 (UI). Models are swapped via `.env`, never in code.
+Known small issue: `norm_port` on scan OCR keeps the country when there is no comma ("NHAVA SHEVA INDIA" vs
+"NHAVA SHEVA, INDIA" -> provisional mismatch); irrelevant to scoring, humans confirm scans.
+Suggested opening prompt: "Read docs/PLAN.md, verify the deployed cloud run (env vars now set), then M5. Plan first."
 
 ## User TODO (accounts, can't be automated)
 - [x] Install GitHub CLI + `gh auth login` (binary at `C:\Program Files\GitHub CLI\gh.exe`, not on PATH in Claude's shell)
 - [x] Create a **private** GitHub repo and push
 - [x] Vercel: import the repo, confirm the first deploy works
 - [x] Supabase project + URL/service key in `.env`; Groq + OpenRouter keys in `.env`
-- [ ] **M4 step 1:** run `supabase/schema.sql` in Supabase dashboard -> SQL Editor -> New query -> Run
-- [ ] **M4 step 2:** Vercel project -> Settings -> Environment Variables: add `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+- [x] **M4 step 1:** run `supabase/schema.sql` in Supabase dashboard -> SQL Editor -> New query -> Run
+- [ ] **M4 step 2 (still failing: production sees none of them):** Vercel project -> Settings -> Environment Variables: add `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
       `GROQ_API_KEY`, `OPENROUTER_API_KEY` (Production), then redeploy
 
 ## Milestones
