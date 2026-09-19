@@ -28,3 +28,7 @@ The scorer summary reports 5 gold `unreadable` cases, consistent with 2 corrupt 
 `NEEDS_REVIEW / unreadable`, and the vision LLM still extracts suggested values plus a provisional comparison for the
 reviewer to confirm. This meets the scorer's expectation and demonstrates the OCR/vision capability. Re-verify once
 the pipeline runs.
+
+**D7 · Vercel routing via vercel.json, not a Next rewrite** (2026-09-19)
+A Python function in `api/index.py` is served at `/api/index`. `vercel.json` rewrites `/api/py/*` to it in production, so
+the whole FastAPI app (all routes under `/api/py`) runs in one function. `next.config.ts` only proxies to local uvicorn in dev.
