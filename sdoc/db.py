@@ -1,4 +1,5 @@
 """Persistence: a small repository interface, a Supabase implementation and an in-memory one for tests."""
+import threading
 from datetime import datetime, timezone
 from typing import Protocol
 
@@ -28,6 +29,29 @@ class Repository(Protocol):
     def latest_run(self) -> dict | None: ...
     def cache_get(self, key: str) -> dict | None: ...
     def cache_put(self, key: str, response: dict) -> None: ...
+
+
+class SupabaseHandle:
+    """One Supabase client per thread. FastAPI runs sync routes in a thread pool and the client's HTTP/2 connection
+    is not thread-safe, so concurrent requests sharing one client failed with `httpx.ReadError` (WinError 10035)."""
+
+    def __init__(self, url: str, key: str):
+        self._url, self._key, self._local = url, key, threading.local()
+
+    @property
+    def client(self):
+        if getattr(self._local, "client", None) is None:
+            from supabase import create_client
+
+            self._local.client = create_client(self._url, self._key)
+        return self._local.client
+
+    def table(self, name: str):
+        return self.client.table(name)
+
+    @property
+    def storage(self):
+        return self.client.storage
 
 
 class SupabaseRepo:

@@ -151,3 +151,22 @@ def test_tiered_cache_copies_durable_hits_forward(tmp_path):
     cache.put("k2", {"v": 2})
     assert repo.cache_get("k2") == {"v": 2} and fast.get("k2") == {"v": 2}
     assert cache.get("missing") is None
+
+
+def test_supabase_handle_gives_each_thread_its_own_client(monkeypatch):
+    """Sharing one HTTP/2 client across the API's worker threads caused httpx.ReadError under concurrent requests."""
+    import threading
+
+    import supabase
+
+    from sdoc.db import SupabaseHandle
+
+    made = []
+    monkeypatch.setattr(supabase, "create_client", lambda url, key: made.append(object()) or made[-1])
+    handle = SupabaseHandle("http://x", "k")
+    seen = []
+    t = threading.Thread(target=lambda: seen.append(handle.client))
+    t.start()
+    t.join()
+    assert handle.client is handle.client  # stable within a thread
+    assert seen[0] is not handle.client and len(made) == 2  # distinct across threads

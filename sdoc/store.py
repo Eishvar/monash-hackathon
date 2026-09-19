@@ -25,10 +25,10 @@ class LocalStore:
 
 class SupabaseStore:
     def __init__(self, client, bucket: str = BUCKET):
-        self.bucket = client.storage.from_(bucket)
+        self.client, self.bucket = client, bucket  # `client` may be a per-thread handle: resolve on every call
 
     def read(self, name: str) -> bytes:
-        return self.bucket.download(name)
+        return self.client.storage.from_(self.bucket).download(name)
 
 
 class MemoryStore:

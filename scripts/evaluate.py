@@ -91,6 +91,21 @@ def main() -> None:
         "paraphrases": run_paraphrases(llm),
     }
     (OUTPUTS / "metrics.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    # Committed copy for the UI's Validation section (the deployed app cannot read the gitignored outputs/).
+    pick = lambda r: {  # noqa: E731
+        "final": r["score"]["final"],
+        "end_to_end": r["score"]["end_to_end"],
+        "rule_share": r["metrics"]["rule_share"],
+    }
+    para = report["paraphrases"]
+    ui = {
+        "generated": time.strftime("%Y-%m-%d"),
+        "bundle": {"rules_only": pick(report["bundle_rules_only"]), "rules_plus_llm": pick(report["bundle_rules_plus_llm"])},
+        "paraphrases": {k: para[k] for k in ("n", "accuracy_rules_only", "accuracy_rules_plus_llm")},
+    }
+    data_dir = ROOT / "src" / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "validation.json").write_text(json.dumps(ui, indent=2), encoding="utf-8")
     for key in ("bundle_rules_only", "bundle_rules_plus_llm"):
         s, m = report[key]["score"], report[key]["metrics"]
         print(f"{key:24} final={s['final']} macroF1={s['classification_macro_f1']} e2e={s['end_to_end']} "

@@ -1,0 +1,20 @@
+{
+  "generated": "2026-09-20",
+  "bundle": {
+    "rules_only": {
+      "final": 1.0,
+      "end_to_end": "46/46",
+      "rule_share": 1.0
+    },
+    "rules_plus_llm": {
+      "final": 1.0,
+      "end_to_end": "46/46",
+      "rule_share": 0.879
+    }
+  },
+  "paraphrases": {
+    "n": 36,
+    "accuracy_rules_only": 0.667,
+    "accuracy_rules_plus_llm": 1.0
+  }
+}

@@ -9,7 +9,7 @@ from dataclasses import asdict
 
 from sdoc.classify import classify
 from sdoc.config import FIELDS, cache_dir, llm_enabled, resolve_model
-from sdoc.db import MemoryRepo, Repository, SupabaseRepo
+from sdoc.db import MemoryRepo, Repository, SupabaseHandle, SupabaseRepo
 from sdoc.decide import decide
 from sdoc.llm import LLM, DiskCache, OpenAICompatLLM, RepoCache, TieredCache
 from sdoc.metrics import compute_metrics
@@ -186,9 +186,7 @@ def build_service() -> Service:
     url, key = os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     if not url or not key:
         raise RuntimeError("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are not set")
-    from supabase import create_client
-
-    client = create_client(url, key)
+    client = SupabaseHandle(url, key)
     repo = SupabaseRepo(client)
     llm = None
     if llm_enabled() and (os.getenv("GROQ_API_KEY") or os.getenv("OPENROUTER_API_KEY")):

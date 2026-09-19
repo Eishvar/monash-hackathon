@@ -76,6 +76,18 @@ escalation). Reviews recompute status via the same `decide()` and write an audit
 (`supabase/schema.sql`) applied via the SQL editor because the client library cannot run DDL. The API is unauthenticated
 (demo scope; documented limitation).
 
+**D16 · UI: client components + relative `/api/py` calls, no extra dependencies** (2026-09-20)
+Pages fetch the FastAPI backend from the browser (small `useApi` hook, distributions drawn with CSS bars, no chart or data
+libraries). Avoids server-side self-fetch with absolute URLs on Vercel and keeps review interactions simple. Filters live in
+the URL. Status colours are always paired with text. The metrics page's Validation section reads a committed
+`src/data/validation.json` written by `scripts/evaluate.py` (the deployed app cannot read the gitignored `outputs/`).
+
+**D17 · One Supabase client per thread** (2026-09-20)
+Found by loading the UI: two simultaneous API requests failed with `httpx.ReadError` (WinError 10035). FastAPI runs sync routes in
+a thread pool and supabase-py's HTTP/2 connection is not thread-safe. `SupabaseHandle` (sdoc/db.py) lazily creates a client per
+thread; `SupabaseStore` resolves storage per call. Regression test added; 48 concurrent requests now all return 200. The same
+bug would have hit Vercel under concurrent users.
+
 **D7 · Vercel routing via vercel.json, not a Next rewrite** (2026-09-19)
 A Python function in `api/index.py` is served at `/api/index`. `vercel.json` rewrites `/api/py/*` to it in production, so
 the whole FastAPI app (all routes under `/api/py`) runs in one function. `next.config.ts` only proxies to local uvicorn in dev.
