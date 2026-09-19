@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./sdoc-hackathon-docker/data_v2/**)",
+      "Edit(./sdoc-hackathon-docker/**)",
+      "Bash(*ground_truth*)",
+      "Bash(*data_v2*)",
+      "PowerShell(*ground_truth*)",
+      "PowerShell(*data_v2*)"
+    ]
+  }
+}
