@@ -37,6 +37,8 @@ PROVIDERS = {  # OpenAI-compatible endpoints
     "groq": {"base_url": "https://api.groq.com/openai/v1", "key_env": "GROQ_API_KEY"},
     "openrouter": {"base_url": "https://openrouter.ai/api/v1", "key_env": "OPENROUTER_API_KEY"},
 }
+# USD per 1M tokens (input, output) for cost *estimates*. Missing entry = free tier / unknown -> reported as $0 + tokens.
+PRICES = {"openrouter/google/gemini-2.5-flash": (0.30, 2.50)}
 TASK_MAX_TOKENS = {"classify": 100, "adjudicate": 150, "explain": 160, "extract": 900, "vision": 1200}  # caps output cost
 TASK_ROLE = {"classify": "text", "extract": "text", "adjudicate": "text", "explain": "text", "vision": "vision"}
 

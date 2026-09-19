@@ -51,9 +51,11 @@ class Usage:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     by_task: dict[str, int] = field(default_factory=dict)
+    by_model: dict[str, list[int]] = field(default_factory=dict)  # "provider/model" -> [prompt, completion] tokens
 
     def as_dict(self) -> dict:
         return {
+            "by_model": {k: list(v) for k, v in self.by_model.items()},
             "llm_calls": self.calls,
             "cache_hits": self.cache_hits,
             "llm_seconds": round(self.seconds, 2),
@@ -130,8 +132,12 @@ class OpenAICompatLLM:
                 self.usage.seconds += time.monotonic() - t0
                 self.usage.calls += 1
                 if resp.usage:
-                    self.usage.prompt_tokens += resp.usage.prompt_tokens or 0
-                    self.usage.completion_tokens += resp.usage.completion_tokens or 0
+                    p, c = resp.usage.prompt_tokens or 0, resp.usage.completion_tokens or 0
+                    self.usage.prompt_tokens += p
+                    self.usage.completion_tokens += c
+                    tally = self.usage.by_model.setdefault(f"{spec.provider}/{spec.model}", [0, 0])
+                    tally[0] += p
+                    tally[1] += c
                 return resp.choices[0].message.content or ""
             except APIStatusError as exc:
                 last = exc

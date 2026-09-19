@@ -1,4 +1,4 @@
-"""Rule-based email classifier. Looks at the body's opening text and the attachments, never the subject
+﻿"""Rule-based email classifier. Looks at the body's opening text and the attachments, never the subject
 (subjects are misleading). Returns `matched=False` when no rule fires so the LLM can take over (M2)."""
 import re
 from dataclasses import dataclass
@@ -17,14 +17,14 @@ SPAM = re.compile(
     re.IGNORECASE,
 )
 BL_COMPARISON = re.compile(
-    r"\b(si|shipping instruction)\b.{0,25}\b(and|vs|against|with)\b.{0,15}\bdraft (bl|bill of lading)|"
-    r"\b(compare|check|verify|confirm)\b.{0,40}\bdraft (bl|bill of lading)|"
-    r"\bdraft (bl|bill of lading)\b.{0,40}\b(against|vs|matches)\b.{0,15}\b(si|shipping instruction)\b",
+    r"\b(si|shipping instruction)\b.{0,25}\b(and|vs|against|with)\b.{0,15}\bdraft (b/?l|bill of lading)|"
+    r"\b(compare|check|verify|confirm)\b.{0,40}\bdraft (b/?l|bill of lading)|"
+    r"\bdraft (b/?l|bill of lading)\b.{0,40}\b(against|vs|matches)\b.{0,15}\b(si|shipping instruction)\b",
     re.IGNORECASE | re.DOTALL,
 )
 # A request to send/issue the draft BL belongs to the BL workflow (category BL_COMPARISON) but carries
 # nothing to compare, so the pipeline records it as OK unless documents are attached.
-BL_REQUEST = re.compile(r"(send|provide|issue|release)\b.{0,20}\bdraft (bl|bill of lading)", re.IGNORECASE | re.DOTALL)
+BL_REQUEST = re.compile(r"(send|provide|issue|release)\b.{0,20}\bdraft (b/?l|bill of lading)", re.IGNORECASE | re.DOTALL)
 SI_REQUEST = re.compile(r"shipping instruction for", re.IGNORECASE)
 INVOICE_QUERY = re.compile(
     r"\binvoice|\bthc\b|\bgr\b.{0,20}missing|goods receipt|d&d|detention|demurrage|credit note|"
