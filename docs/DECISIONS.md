@@ -29,6 +29,22 @@ The scorer summary reports 5 gold `unreadable` cases, consistent with 2 corrupt 
 reviewer to confirm. This meets the scorer's expectation and demonstrates the OCR/vision capability. Re-verify once
 the pipeline runs.
 
+**D8 · "Send me the draft BL" emails are BL_COMPARISON, status OK** (2026-09-19)
+Found via the scorer's per-category aggregate: ~90 "please assist to send the draft BL" emails (no attachments) score as
+BL_COMPARISON, not SI_REQUEST. They carry nothing to compare, so they get OK/no defect and are NOT escalated as
+`missing_attachment`; only emails with compare intent ("compare/check SI and draft BL") and missing files escalate.
+Disagreement with the naive reading of the category names; recorded so it is not "fixed" later.
+
+**D9 · PDF text from words in stream order, not extract_text()** (2026-09-19)
+A wrapped label ("Notify Party/Intermediate Consignee") overlaps its value column, and `extract_text()` interleaved the
+characters ("ConsKiTgPne CeO."), causing false mismatches. Grouping `extract_words(use_text_flow=True)` by line fixes it.
+
+**D10 · Comparison rules** (2026-09-19)
+Parties compare name+address ignoring case/punctuation/layout separators; ports compare the port name only (UN/LOCODE,
+parentheticals and country dropped); container_count compares the number only (not `40'HC` vs `20'GP`); weight compares
+parsed numbers. Missing/placeholder values (`N/A`, `TBA`, `____`) → NEEDS_REVIEW/missing_value, never a mismatch.
+Review precedence: missing_attachment > unreadable > wrong_doc_type > missing_value.
+
 **D7 · Vercel routing via vercel.json, not a Next rewrite** (2026-09-19)
 A Python function in `api/index.py` is served at `/api/index`. `vercel.json` rewrites `/api/py/*` to it in production, so
 the whole FastAPI app (all routes under `/api/py`) runs in one function. `next.config.ts` only proxies to local uvicorn in dev.
