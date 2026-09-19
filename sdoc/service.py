@@ -20,6 +20,7 @@ from sdoc.store import AttachmentStore, SupabaseStore
 DEFAULT_RECORD = {"category": "GENERAL", "status": "OK", "review_reason": None, "has_defect": False,
                   "defect_fields": [], "decided_by": "rule"}
 BATCH_BUDGET_S = 45  # stay well inside the serverless function timeout
+METRIC_COLUMNS = "email_id,category,status,review_reason,has_defect,defect_fields,decided_by,reviewed"
 
 
 class NotFound(LookupError):
@@ -90,12 +91,15 @@ class Service:
 
     def _record_run(self, run_id: str, before: dict, n: int) -> None:
         after = self._usage()
-        latest = self.repo.latest_run()
-        stats = (latest or {}).get("stats") if latest and latest.get("id") == run_id else {}
-        stats = dict(stats or {})
+        existing = self.repo.get_run(run_id)  # by id: interleaved runs must not reset each other's stats
+        stats = dict((existing or {}).get("stats") or {})
         stats["emails_processed"] = stats.get("emails_processed", 0) + n
         for k in ("llm_calls", "cache_hits", "prompt_tokens", "completion_tokens"):
             stats[k] = stats.get(k, 0) + after.get(k, 0) - before.get(k, 0)
+        by_task = dict(stats.get("by_task") or {})
+        for task, count in (after.get("by_task") or {}).items():
+            by_task[task] = by_task.get(task, 0) + count - (before.get("by_task") or {}).get(task, 0)
+        stats["by_task"] = {t: c for t, c in by_task.items() if c}
         by_model = {m: list(v) for m, v in (stats.get("by_model") or {}).items()}
         for m, (p, c) in (after.get("by_model") or {}).items():
             bp, bc = (before.get("by_model") or {}).get(m, (0, 0))
@@ -104,7 +108,7 @@ class Service:
             cur[1] += c - bc
         stats["by_model"] = by_model
         run = {"id": run_id, "stats": stats}
-        if not latest or latest.get("id") != run_id:
+        if not existing:
             run["models"] = {t: f"{resolve_model(t).provider}/{resolve_model(t).model}" for t in ("classify", "vision")}
         self.repo.upsert_run(run)
 
@@ -119,13 +123,13 @@ class Service:
         return {"email": email, "result": self.repo.get_result(email_id), "reviews": self.repo.list_reviews(email_id)}
 
     def review_queue(self) -> list[dict]:
-        emails = {}
-        out = []
-        for r in self.repo.review_queue():
-            emails[r["email_id"]] = self.repo.get_email(r["email_id"]) or {}
-            e = emails[r["email_id"]]
-            out.append({"email_id": r["email_id"], "subject": e.get("subject"), "sender": e.get("sender"), "result": r})
-        return out
+        queue = self.repo.review_queue()
+        headers = self.repo.email_headers([r["email_id"] for r in queue])
+        return [
+            {"email_id": r["email_id"], "subject": headers.get(r["email_id"], {}).get("subject"),
+             "sender": headers.get(r["email_id"], {}).get("sender"), "result": r}
+            for r in queue
+        ]
 
     # -- human review: confirm / correct -> recompute -> audit ---------------------------------------------------------
     def review(self, email_id: str, action: str, corrections: dict[str, dict[str, str | None]] | None = None,
@@ -141,6 +145,9 @@ class Service:
                 raise BadRequest(f"bad correction for {f!r}: fields must be one of {FIELDS}, sides 'si'/'bl'")
         if action == "correct" and not corrections:
             raise BadRequest("'correct' needs at least one correction")
+        if result["status"] == "ERROR" and not corrections:
+            # Confirming would clear the error and hide a failed email from the queue while its status stays ERROR.
+            raise BadRequest("this email failed to process: retry processing, or supply values for the fields")
 
         before = {k: result.get(k) for k in ("status", "review_reason", "defect_fields", "has_defect", "fields")}
         rows = result.get("fields") or result.get("provisional_fields") or []
@@ -167,7 +174,7 @@ class Service:
         return {i: to_record(results[i]) if i in results else dict(DEFAULT_RECORD) for i in self.repo.list_email_ids()}
 
     def metrics(self) -> dict:
-        results = self.repo.all_results()
+        results = self.repo.all_results(METRIC_COLUMNS)  # light columns: this endpoint is hit on every page load
         records = {r["email_id"]: to_record(r) for r in results}
         run = self.repo.latest_run() or {}
         stats = run.get("stats") or {}
@@ -176,7 +183,8 @@ class Service:
         total = len(self.repo.list_email_ids())
         m.update(total_emails=total, processed=len(results), unprocessed=total - len(results),
                  errors=sum(r["status"] == "ERROR" for r in results),
-                 review_queue=len(self.repo.review_queue()), reviewed=sum(bool(r.get("reviewed")) for r in results),
+                 review_queue=sum(r["status"] in ("NEEDS_REVIEW", "ERROR") and not r.get("reviewed") for r in results),
+                 reviewed=sum(bool(r.get("reviewed")) for r in results),
                  latest_run={k: run.get(k) for k in ("id", "models", "score", "started_at")} if run else None)
         return m
 

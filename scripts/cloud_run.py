@@ -31,7 +31,13 @@ def main() -> None:
     print("health:", client.get(f"{api}/health").json())
     ids = None
     if args.reprocess:  # explicit ids so the loop terminates
-        ids = [e["email_id"] for off in range(0, 10_000, 200) for e in client.get(f"{api}/emails", params={"limit": 200, "offset": off}).json()]
+        ids, offset = [], 0
+        while True:  # stop at the last page instead of always issuing 50 requests
+            rows = client.get(f"{api}/emails", params={"limit": 200, "offset": offset}).json()
+            ids += [e["email_id"] for e in rows]
+            if len(rows) < 200:
+                break
+            offset += 200
     done = 0
     while True:
         payload = {"run_id": run_id, "limit": args.batch}

@@ -15,7 +15,7 @@ from typing import Protocol, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from sdoc.config import TASK_MAX_TOKENS, ModelSpec, cache_dir, llm_enabled, resolve_model
+from sdoc.config import TASK_MAX_TOKENS, ModelSpec, cache_dir, llm_enabled, llm_max_wait_s, resolve_model
 
 T = TypeVar("T", bound=BaseModel)
 MAX_ATTEMPTS = 8
@@ -165,9 +165,9 @@ class OpenAICompatLLM:
             "response_format": {"type": "json_object"},
             "max_tokens": TASK_MAX_TOKENS[task],
         }
-        if spec.provider == "groq":
-            kwargs["reasoning_effort"] = "none"  # Qwen3 on Groq: skip the thinking tokens
+        kwargs.update(spec.extra)
         last: Exception | None = None
+        waited, max_wait = 0.0, llm_max_wait_s()
         for attempt in range(MAX_ATTEMPTS):
             t0 = time.monotonic()
             try:
@@ -184,15 +184,20 @@ class OpenAICompatLLM:
                 return resp.choices[0].message.content or ""
             except APIStatusError as exc:
                 last = exc
-                if exc.status_code == 400 and "reasoning_effort" in kwargs:
-                    kwargs.pop("reasoning_effort")  # model doesn't take it; retry without
+                if exc.status_code == 400 and any(k in kwargs for k in spec.extra):
+                    for k in spec.extra:
+                        kwargs.pop(k, None)  # the model rejects a provider-specific option: retry without it
                     continue
                 if exc.status_code not in (408, 409, 429) and exc.status_code < 500:
                     break
             except APIConnectionError as exc:
                 last = exc
-            self._sleep(retry_delay(last, attempt))
-        raise LLMError(f"{spec.provider}/{spec.model} failed: {last}")
+            delay = retry_delay(last, attempt)
+            if waited + delay > max_wait:  # give up visibly rather than outlive the serverless time limit
+                break
+            waited += delay
+            self._sleep(delay)
+        raise LLMError(f"{spec.provider}/{spec.model} failed after waiting {waited:.0f}s: {last}")
 
     def complete_json(self, task: str, system: str, user: str, schema: type[T], images: list[bytes] | None = None) -> T:
         spec = resolve_model(task)

@@ -43,11 +43,13 @@ function useEmails(query: string) {
   const loadMore = useCallback(async () => {
     if (!current) return;
     setBusy(true);
+    // Functional updates guarded by the key: if the filter changed while this request was in flight, drop the result
+    // instead of overwriting the newer query's rows with stale state (which left the list stuck on the skeleton).
     try {
       const more = await apiGet<EmailRow[]>(`/emails?${query}&limit=${PAGE}&offset=${current.rows.length}`);
-      setState({ ...current, rows: [...current.rows, ...more], done: more.length < PAGE });
+      setState((s) => (s && s.key === query ? { ...s, rows: [...s.rows, ...more], done: more.length < PAGE } : s));
     } catch (e) {
-      setState({ ...current, error: (e as Error).message });
+      setState((s) => (s && s.key === query ? { ...s, error: (e as Error).message } : s));
     } finally {
       setBusy(false);
     }

@@ -88,6 +88,14 @@ a thread pool and supabase-py's HTTP/2 connection is not thread-safe. `SupabaseH
 thread; `SupabaseStore` resolves storage per call. Regression test added; 48 concurrent requests now all return 200. The same
 bug would have hit Vercel under concurrent users.
 
+**D18 · Ship-time hardening from review** (2026-09-20)
+`/code-review` and a manual security pass found and fixed: confirming a failed (`ERROR`) email hid it from the queue (now rejected);
+LLM rate-limit waits could outlive the 60 s serverless limit (capped by `LLM_MAX_WAIT_S`, 25 s on Vercel, then a visible
+`LLMError`); `/metrics` read full jsonb rows on every page (now light columns); the review queue was unpaginated; run stats were
+reset when runs interleaved; provider-specific request options moved from `llm.py` into `PROVIDERS` in `config.py` (CLAUDE.md rule);
+request sizes and query bounds are validated (the API is open by design, see README limits). CI caught that `tsc` needs
+`next typegen` on a clean checkout.
+
 **D7 · Vercel routing via vercel.json, not a Next rewrite** (2026-09-19)
 A Python function in `api/index.py` is served at `/api/index`. `vercel.json` rewrites `/api/py/*` to it in production, so
 the whole FastAPI app (all routes under `/api/py`) runs in one function. `next.config.ts` only proxies to local uvicorn in dev.

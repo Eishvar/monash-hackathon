@@ -5,7 +5,9 @@ from api.index import app, get_service
 from sdoc.config import FIELDS
 from sdoc.db import MemoryRepo
 from sdoc.llm import DiskCache, RepoCache, TieredCache
-from sdoc.service import Service
+from types import SimpleNamespace
+
+from sdoc.service import METRIC_COLUMNS, BadRequest, Service
 from sdoc.store import MemoryStore
 from tests.test_stress import BASE, CHANGED, LABELS, build_txt
 
@@ -177,3 +179,54 @@ def test_open_api_request_size_caps(client):
     assert client.post("/api/py/process-batch", json={"limit": 500}).status_code == 422
     assert client.post("/api/py/process-batch", json={"limit": 0}).status_code == 422
     assert client.post("/api/py/reviews/email_001", json={"action": "confirm", "note": "x" * 501}).status_code == 422
+
+
+def test_list_emails_query_validation(client):
+    for bad in ({"limit": -1}, {"limit": 0}, {"limit": 201}, {"offset": -5}, {"status": "MISMATCH'; drop"}, {"category": "x" * 30}):
+        assert client.get("/api/py/emails", params=bad).status_code == 422, bad
+    assert client.get("/api/py/emails", params={"limit": 200, "offset": 0, "status": "NEEDS_REVIEW"}).status_code == 200
+
+
+def test_confirming_a_failed_email_is_rejected_not_hidden(svc):
+    del svc.store.files["attachments/email_001_BL.txt"]
+    assert svc.process("email_001")["status"] == "ERROR"
+    with pytest.raises(BadRequest):
+        svc.review("email_001", "confirm")
+    assert svc.repo.get_result("email_001")["status"] == "ERROR" and svc.repo.get_result("email_001")["processing_error"]
+    assert any(q["email_id"] == "email_001" for q in svc.review_queue())  # still visible in the queue
+
+
+def test_interleaved_runs_keep_their_own_stats(svc):
+    svc.process_batch(limit=2, run_id="a")
+    svc.process_batch(limit=1, run_id="b")
+    svc.process_batch(limit=2, run_id="a")  # 'b' is now the latest run; 'a' must accumulate, not reset
+    assert svc.repo.runs["a"]["stats"]["emails_processed"] == 4
+    assert svc.repo.runs["b"]["stats"]["emails_processed"] == 1
+
+
+def test_run_stats_accumulate_llm_usage_by_task():
+    class CountingLLM:
+        def __init__(self):
+            self.usage = SimpleNamespace(as_dict=lambda: self.snapshot)
+            self.snapshot = {"llm_calls": 0, "cache_hits": 0, "prompt_tokens": 0, "completion_tokens": 0, "by_task": {}, "by_model": {}}
+
+        def complete_json(self, task, system, user, schema, images=None):
+            self.snapshot = {**self.snapshot, "llm_calls": self.snapshot["llm_calls"] + 1, "by_task": {"classify": self.snapshot["by_task"].get("classify", 0) + 1}}
+            return schema(category="GENERAL")
+
+    repo = MemoryRepo()
+    repo.upsert_emails([email(9, "Kindly note the vessel schedule changed.", attachments=False)])
+    llm = CountingLLM()
+    llm.usage = SimpleNamespace(as_dict=lambda: llm.snapshot)
+    Service(repo, MemoryStore(), llm).process_batch(limit=5, run_id="r")
+    assert repo.runs["r"]["stats"]["by_task"] == {"classify": 1} and repo.runs["r"]["stats"]["llm_calls"] == 1
+
+
+def test_metrics_and_queue_use_light_reads(svc):
+    svc.process_batch(limit=10, run_id="m")
+    asked = []
+    original = svc.repo.all_results
+    svc.repo.all_results = lambda columns="*": asked.append(columns) or original(columns)
+    m = svc.metrics()
+    assert asked == [METRIC_COLUMNS] and m["review_queue"] == 2
+    assert {q["subject"] for q in svc.review_queue()} == {"subj 3", "subj 4"}

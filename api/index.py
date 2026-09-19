@@ -6,7 +6,7 @@ All routes live under /api/py so Next.js can proxy them in dev (see next.config.
 import os
 from functools import lru_cache
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from sdoc.service import BadRequest, NotFound, Service, build_service
@@ -56,8 +56,8 @@ def health() -> dict:
 
 
 @app.get("/api/py/emails")
-def list_emails(category: str | None = None, status: str | None = None, limit: int = 50, offset: int = 0,
-                svc: Service = Depends(get_service)):
+def list_emails(category: str | None = Query(None, pattern="^[A-Z_]{1,20}$"), status: str | None = Query(None, pattern="^[A-Z_]{1,20}$"),
+                limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0), svc: Service = Depends(get_service)):
     return svc.list_emails(category, status, limit, offset)
 
 

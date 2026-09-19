@@ -170,3 +170,41 @@ def test_pipeline_without_llm_matches_rule_behaviour(tmp_path):
     assert res.record["status"] == "NEEDS_REVIEW" and res.record["review_reason"] == "missing_attachment"
     assert res.record["decided_by"] == "rule"
     json.dumps(res.record)
+
+
+def test_rate_limit_waiting_is_capped_and_fails_visibly(client, monkeypatch):
+    import httpx
+    import openai
+
+    monkeypatch.setenv("LLM_MAX_WAIT_S", "5")
+    resp = httpx.Response(429, request=httpx.Request("POST", "http://x"), headers={"retry-after": "3"})
+
+    def create(**kwargs):
+        raise openai.RateLimitError("rate limited", response=resp, body=None)
+
+    client._clients["groq"] = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    slept = []
+    client._sleep = slept.append
+    with pytest.raises(LLMError, match="failed after waiting"):
+        client.complete_json("classify", "sys", "cap test", ClassifyOut)
+    assert sum(slept) <= 5  # never outlives a 60 s serverless invocation
+
+
+def test_provider_specific_params_come_from_config_and_are_dropped_if_rejected(client, monkeypatch):
+    import httpx
+    import openai
+
+    assert config.resolve_model("classify").extra == {"reasoning_effort": "none"}
+    assert config.resolve_model("vision").extra == {}
+    sent = []
+    resp = httpx.Response(400, request=httpx.Request("POST", "http://x"))
+
+    def create(**kwargs):
+        sent.append("reasoning_effort" in kwargs)
+        if len(sent) == 1:
+            raise openai.BadRequestError("unsupported", response=resp, body=None)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"category": "SPAM"}'))], usage=None)
+
+    client._clients["groq"] = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    assert client.complete_json("classify", "sys", "extras test", ClassifyOut).category == "SPAM"
+    assert sent == [True, False]

@@ -1,9 +1,11 @@
 # Plan — 2-day build (started 2026-09-19)
 
 ## Next session
-M0–M5 done. M6 (ship) remains: README (problem, architecture diagram, score + validation evidence, decisions, limits &
-roadmap: unauthenticated API, no attachment preview, single-tenant), GitHub Actions running pytest + `npm run build`,
-demo script/video, pitch notes; final check of the live URL (open `/`, `/emails/email_004`, `/review`, `/metrics`).
+**All milestones M0–M6 are done.** Remaining work is yours (Claude cannot do it): (1) record the ~4-minute demo video from
+`docs/DEMO.md`; (2) the repo is **private** — decide whether judges need it public before submitting (tracked files and git
+history contained no keys when checked; only `.env.example` is tracked; re-check if you add anything); (3) submit the live URL,
+repo and video wherever the organisers ask. If you touch the code again: `pytest -q`, `npm run lint`, `npx tsc --noEmit`,
+`npm run build`; CI runs the same on every push.
 UI is in `src/` (pages: `/`, `/emails/[id]`, `/review`, `/process`, `/metrics`); dev = `uvicorn api.index:app --port 8000`
 + `npm run dev`. Reprocessing an email resets its `reviewed` flag (documented on the Process page).
 Earlier note, backend state: M0–M4 done and verified in the cloud. The backend is complete: `https://monash-hackathon-five.vercel.app/api/py/*`
@@ -47,7 +49,7 @@ Suggested opening prompt: "Read docs/PLAN.md and do M5. Plan first."
 ### Day 2 — frontend + submission (new session; install the frontend-design plugin first)
 - [x] **M5 UI** (built + browser-verified locally against live Supabase at desktop and phone width, light/dark; lint, tsc, build, 125 pytest green; review round-trip and process loop exercised, test data reverted): inbox triage (category/status filters), email report (SI vs BL side by side + evidence +
       explanation), review queue (confirm/correct, retry), process-inbox progress, metrics page
-- [ ] **M6 ship**: final deploy, README (problem, architecture diagram, score evidence, decisions, limits, roadmap),
+- [x] **M6 ship** (README, CI green on GitHub Actions, docs/DEMO.md, security + code review fixes D18, 133 tests): final deploy, README (problem, architecture diagram, score evidence, decisions, limits, roadmap),
       GitHub Actions running pytest, demo script / video, pitch notes
 
 ## Score log (python scripts/score.py)

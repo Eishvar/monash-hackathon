@@ -7,7 +7,7 @@ To swap a model: edit DEFAULT_MODELS below, or set env vars in `.env` (no code c
 Tasks: classify, extract, adjudicate, explain (text role); vision (vision role).
 """
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -33,8 +33,9 @@ DEFAULT_MODELS = {
     "text": ("groq", "qwen/qwen3.8-27b"),
     "vision": ("openrouter", "google/gemini-2.5-flash"),
 }
-PROVIDERS = {  # OpenAI-compatible endpoints
-    "groq": {"base_url": "https://api.groq.com/openai/v1", "key_env": "GROQ_API_KEY"},
+PROVIDERS = {  # OpenAI-compatible endpoints; extra_params are provider-specific request options
+    # Qwen3 on Groq: skip the thinking tokens (dropped automatically if the model rejects it)
+    "groq": {"base_url": "https://api.groq.com/openai/v1", "key_env": "GROQ_API_KEY", "extra_params": {"reasoning_effort": "none"}},
     "openrouter": {"base_url": "https://openrouter.ai/api/v1", "key_env": "OPENROUTER_API_KEY"},
 }
 # USD per 1M tokens (input, output) for cost *estimates*. Missing entry = free tier / unknown -> reported as $0 + tokens.
@@ -49,6 +50,12 @@ class ModelSpec:
     model: str
     base_url: str
     api_key: str | None
+    extra: dict = field(default_factory=dict)  # provider-specific request params
+
+
+def llm_max_wait_s() -> float:
+    """Total seconds one LLM call may spend waiting on rate limits. Serverless functions time out at 60 s."""
+    return float(os.getenv("LLM_MAX_WAIT_S", 25 if os.getenv("VERCEL") else 120))
 
 
 def resolve_model(task: str) -> ModelSpec:
@@ -60,7 +67,7 @@ def resolve_model(task: str) -> ModelSpec:
     if provider not in PROVIDERS:
         raise ValueError(f"Unknown LLM provider {provider!r}; known: {sorted(PROVIDERS)}")
     p = PROVIDERS[provider]
-    return ModelSpec(provider, model, p["base_url"], os.getenv(p["key_env"]) or None)
+    return ModelSpec(provider, model, p["base_url"], os.getenv(p["key_env"]) or None, dict(p.get("extra_params", {})))
 
 
 def llm_enabled() -> bool:

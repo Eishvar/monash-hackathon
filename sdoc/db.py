@@ -21,8 +21,10 @@ class Repository(Protocol):
     def list_emails(self, category: str | None, status: str | None, limit: int, offset: int) -> list[dict]: ...
     def upsert_result(self, result: dict) -> None: ...
     def get_result(self, email_id: str) -> dict | None: ...
-    def all_results(self) -> list[dict]: ...
+    def all_results(self, columns: str = "*") -> list[dict]: ...
     def review_queue(self) -> list[dict]: ...
+    def email_headers(self, ids: list[str]) -> dict[str, dict]: ...
+    def get_run(self, run_id: str) -> dict | None: ...
     def add_review(self, review: dict) -> None: ...
     def list_reviews(self, email_id: str) -> list[dict]: ...
     def upsert_run(self, run: dict) -> None: ...
@@ -105,20 +107,20 @@ class SupabaseRepo:
         rows = self.c.table("results").select("*").eq("email_id", email_id).limit(1).execute().data
         return rows[0] if rows else None
 
-    def all_results(self) -> list[dict]:
-        return self._all(lambda: self.c.table("results").select("*"), "email_id")
+    def all_results(self, columns: str = "*") -> list[dict]:
+        return self._all(lambda: self.c.table("results").select(columns), "email_id")
 
     def review_queue(self) -> list[dict]:
-        rows = (
-            self.c.table("results")
-            .select("*")
-            .or_("status.eq.NEEDS_REVIEW,status.eq.ERROR")
-            .eq("reviewed", False)
-            .order("email_id")
-            .execute()
-            .data
+        return self._all(
+            lambda: self.c.table("results").select("*").or_("status.eq.NEEDS_REVIEW,status.eq.ERROR").eq("reviewed", False),
+            "email_id",
         )
-        return rows
+
+    def email_headers(self, ids: list[str]) -> dict[str, dict]:
+        if not ids:
+            return {}
+        rows = self.c.table("emails").select("email_id,subject,sender").in_("email_id", ids).execute().data
+        return {r["email_id"]: r for r in rows}
 
     def add_review(self, review: dict) -> None:
         self.c.table("reviews").insert(review).execute()
@@ -128,6 +130,10 @@ class SupabaseRepo:
 
     def upsert_run(self, run: dict) -> None:
         self.c.table("runs").upsert(run).execute()
+
+    def get_run(self, run_id: str) -> dict | None:
+        rows = self.c.table("runs").select("*").eq("id", run_id).limit(1).execute().data
+        return rows[0] if rows else None
 
     def latest_run(self) -> dict | None:
         rows = self.c.table("runs").select("*").order("started_at", desc=True).limit(1).execute().data
@@ -178,7 +184,7 @@ class MemoryRepo:
     def get_result(self, email_id):
         return self.results.get(email_id)
 
-    def all_results(self):
+    def all_results(self, columns="*"):
         return [self.results[i] for i in sorted(self.results)]
 
     def review_queue(self):
@@ -192,6 +198,12 @@ class MemoryRepo:
 
     def upsert_run(self, run):
         self.runs[run["id"]] = {**self.runs.get(run["id"], {}), **run}
+
+    def get_run(self, run_id):
+        return self.runs.get(run_id)
+
+    def email_headers(self, ids):
+        return {i: {k: self.emails[i].get(k) for k in ("email_id", "subject", "sender")} for i in ids if i in self.emails}
 
     def latest_run(self):
         return max(self.runs.values(), key=lambda r: r.get("started_at", ""), default=None)
