@@ -1,0 +1,3 @@
+# Keep LF everywhere; never rewrite the dataset files.
+* text=auto eol=lf
+sdoc-hackathon-bundle/** -text
