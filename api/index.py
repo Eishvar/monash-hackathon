@@ -3,6 +3,7 @@
 Keep this file thin: routes parse the request and call into `sdoc.service`.
 All routes live under /api/py so Next.js can proxy them in dev (see next.config.ts) and vercel.json rewrites them in prod.
 """
+import os
 from functools import lru_cache
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -49,7 +50,9 @@ def _call(fn, *args, **kwargs):
 
 @app.get("/api/py/health")
 def health() -> dict:
-    return {"status": "ok"}
+    # Which settings are present (booleans only, never values): makes a misconfigured deployment self-diagnosing.
+    names = ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY")
+    return {"status": "ok", "configured": {n: bool(os.getenv(n)) for n in names}, "vercel_env": os.getenv("VERCEL_ENV")}
 
 
 @app.get("/api/py/emails")

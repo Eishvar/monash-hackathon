@@ -8,7 +8,7 @@ import json
 import mimetypes
 import os
 import sys
-from concurrent.futures import ThreadPoolExecutor
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -34,7 +34,11 @@ def main() -> None:
 
     emails = LocalStore(BUNDLE).emails()
     repo.upsert_emails(
-        [{k: e[k] for k in ("email_id", "sender", "subject", "body", "attachments")} | {"sender": e.get("from")} for e in emails]
+        [
+            {"email_id": e["email_id"], "sender": e.get("from"), "subject": e.get("subject"), "body": e.get("body"),
+             "attachments": e.get("attachments", [])}
+            for e in emails
+        ]
     )
     print(f"upserted {len(emails)} emails")
 
@@ -43,10 +47,19 @@ def main() -> None:
 
     def upload(name: str) -> None:
         ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
-        bucket.upload(name, (BUNDLE / name).read_bytes(), {"content-type": ctype, "upsert": "true"})
+        for attempt in range(4):  # the storage client is not thread-safe, so sequential; retry transient errors
+            try:
+                bucket.upload(name, (BUNDLE / name).read_bytes(), {"content-type": ctype, "upsert": "true"})
+                return
+            except Exception:
+                if attempt == 3:
+                    raise
+                time.sleep(1 + attempt)
 
-    with ThreadPoolExecutor(8) as pool:
-        list(pool.map(upload, names))
+    for i, name in enumerate(names, 1):
+        upload(name)
+        if i % 50 == 0:
+            print(f"  uploaded {i}/{len(names)}")
     print(f"uploaded {len(names)} attachments")
 
     cached = sorted(cache_dir().glob("*.json"))

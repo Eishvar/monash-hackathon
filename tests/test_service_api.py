@@ -1,4 +1,4 @@
-import pytest
+﻿import pytest
 from fastapi.testclient import TestClient
 
 from api.index import app, get_service
@@ -115,7 +115,7 @@ def test_metrics(svc):
 
 
 def test_api_endpoints(client):
-    assert client.get("/api/py/health").json() == {"status": "ok"}
+    assert client.get("/api/py/health").json()["status"] == "ok"
     body = client.post("/api/py/process-batch", json={"limit": 10, "run_id": "api"}).json()
     assert body["remaining"] == 0 and len(body["processed"]) == 5
     rows = client.get("/api/py/emails", params={"status": "MISMATCH"}).json()
