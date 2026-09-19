@@ -62,6 +62,20 @@ Image-only PDFs stay NEEDS_REVIEW/`unreadable` (matches the 5 gold cases); Gemin
 suggested values and a provisional SI-vs-BL comparison (`details.provisional_fields`) for the reviewer. Corrupt files
 can't be rendered and get no suggestion. Observed OCR noise ("STATIONERYLLC") is why a human confirms.
 
+**D14 · Unseen-phrasing set as the generalisation metric** (2026-09-20)
+The bundle is rule-friendly (rules-only also scores 1.000), so it cannot show the value of the AI tier. `tests/data/paraphrases.json`
+holds 36 hand-written emails (none from the bundle) across the 5 categories: rules alone get 67%, rules+LLM 100%. A pytest guard
+asserts that whenever a rule fires on this set it is correct (rules abstain rather than guess). Weight is unit-aware (MT/tonnes),
+party suffixes are canonicalised (LIMITED=LTD) to avoid false alarms, which the scorer penalises.
+
+**D15 · Cloud data layer behind interfaces** (2026-09-20)
+`Repository` (Supabase / in-memory), `AttachmentStore` (local bundle / Supabase Storage) and a tiered LLM cache
+(disk in front of the `llm_cache` table) keep the pipeline identical locally and on Vercel and make the API testable
+without a network. Failed processing becomes a persisted `ERROR` row (visible, retryable; exported as an unreadable
+escalation). Reviews recompute status via the same `decide()` and write an audit row (before/after). Schema is plain SQL
+(`supabase/schema.sql`) applied via the SQL editor because the client library cannot run DDL. The API is unauthenticated
+(demo scope; documented limitation).
+
 **D7 · Vercel routing via vercel.json, not a Next rewrite** (2026-09-19)
 A Python function in `api/index.py` is served at `/api/index`. `vercel.json` rewrites `/api/py/*` to it in production, so
 the whole FastAPI app (all routes under `/api/py`) runs in one function. `next.config.ts` only proxies to local uvicorn in dev.

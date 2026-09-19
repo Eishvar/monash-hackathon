@@ -1,20 +1,23 @@
 # Plan — 2-day build (started 2026-09-19)
 
 ## Next session
-M0–M2 done. Local score is saturated at 1.000 (rules + LLM), so the remaining value is **validation, generalisation and
-the cloud/UI story**. M3: metrics (rule share, LLM calls/tokens/latency/cost — `Usage.as_dict()` + `outputs/details.json`
-already provide the raw numbers), stress tests on synthetic unseen phrasings/formats, ablation (`--no-llm` vs LLM),
-maybe a small hand-labelled adversarial set. Then M4 (Supabase; also move the LLM cache there, since Vercel's disk is
-ephemeral and Groq's free tier allows only 1,000 output tokens/min for qwen3.8-27b, so cold runs are slow).
-Models are swapped via `.env` (see `.env.example`), never in code. Open: Supabase keys are in `.env` (untested).
-Suggested opening prompt: "Read docs/PLAN.md and do M3 then M4. Plan first."
+M0–M3 done; M4 code is written, tested (124 pytest) and deployed, but **blocked on two user steps** (below).
+Then: (1) `python scripts/seed_supabase.py`; (2) run the API locally against Supabase (`uvicorn api.index:app --port 8000`,
+`python scripts/cloud_run.py --base http://127.0.0.1:8000`); (3) once Vercel env vars are set, `python scripts/cloud_run.py`
+against the deployed app and confirm the exported submission scores ~1.000; (4) review round-trip on a scan case
+(email_512–514: `POST /api/py/reviews/{id}`); (5) log results here + DECISIONS, tick M4. Supabase-specific code
+(`SupabaseRepo.list_emails` embedding/filters, `SupabaseStore`, upserts) is verified only by fakes so far.
+Then M5 (UI). Models are swapped via `.env` (see `.env.example`), never in code.
+Suggested opening prompt: "Read docs/PLAN.md and finish M4 (schema applied, env vars set), then M5. Plan first."
 
 ## User TODO (accounts, can't be automated)
 - [x] Install GitHub CLI + `gh auth login` (binary at `C:\Program Files\GitHub CLI\gh.exe`, not on PATH in Claude's shell)
 - [x] Create a **private** GitHub repo and push
 - [x] Vercel: import the repo, confirm the first deploy works
-- [ ] Supabase: create a free project; copy URL + service role key into `.env`
-- [ ] Groq API key + OpenRouter API key into `.env`
+- [x] Supabase project + URL/service key in `.env`; Groq + OpenRouter keys in `.env`
+- [ ] **M4 step 1:** run `supabase/schema.sql` in Supabase dashboard -> SQL Editor -> New query -> Run
+- [ ] **M4 step 2:** Vercel project -> Settings -> Environment Variables: add `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+      `GROQ_API_KEY`, `OPENROUTER_API_KEY` (Production), then redeploy
 
 ## Milestones
 ### Day 1 — backend
@@ -25,8 +28,11 @@ Suggested opening prompt: "Read docs/PLAN.md and do M3 then M4. Plan first."
       compare; decide; rule classifier → first `submission.json` + score (baseline, no LLM)
 - [x] **M2 AI layer** (score 1.000 with LLM; 88% rule share; 18 pytest tests; repeat run = 0 LLM calls, 3.5 s): `sdoc/llm.py` (provider switch, cache, Pydantic validation, retries); LLM classify fallback;
       LLM extract fallback; vision for scans; mismatch adjudicator; explanations → re-score
-- [ ] **M3 tests + validation**: pytest for normalizers/compare/decide; metrics (rule share, LLM calls, latency, cost)
-- [ ] **M4 cloud backend**: Supabase schema + seed (emails + attachments to Storage); FastAPI endpoints; cloud batch
+- [x] **M3 tests + validation** (114 tests at that point): stress tests over txt/docx/xlsx x 3 label vocabularies, unit/suffix
+      normalisation, `tests/data/paraphrases.json` (36 unseen phrasings: rules-only 67% -> rules+LLM 100%), `sdoc/metrics.py`,
+      `scripts/evaluate.py` -> `outputs/metrics.json` (bundle: rules-only 1.000 vs rules+LLM 1.000; the bundle is rule-friendly,
+      the paraphrase set is the generalisation evidence)
+- [ ] **M4 cloud backend** (code done + deployed, 124 tests; needs user steps 1-2 above, then seed + cloud verification): Supabase schema + seed (emails + attachments to Storage); FastAPI endpoints; cloud batch
       processing; review → recompute → audit
 
 ### Day 2 — frontend + submission (new session; install the frontend-design plugin first)
