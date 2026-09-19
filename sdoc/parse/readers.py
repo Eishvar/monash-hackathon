@@ -23,6 +23,8 @@ class Doc:
     fields: dict[str, str | None] = field(default_factory=lambda: dict.fromkeys(FIELDS))
     unreadable: bool = False
     error: str | None = None
+    text: str = ""  # plain-text rendering of the document (input for LLM extraction)
+    scanned: bool = False  # PDF with no text layer: candidate for the vision LLM
 
 
 def is_blank(value: str | None) -> bool:
@@ -44,8 +46,8 @@ def detect_kind(head: str) -> str:
     return "UNKNOWN"
 
 
-def _doc_from_pairs(head: str, pairs: list[tuple[str, str]]) -> Doc:
-    doc = Doc(kind=detect_kind(head))
+def _doc_from_pairs(head: str, pairs: list[tuple[str, str]], text: str = "") -> Doc:
+    doc = Doc(kind=detect_kind(head), text=text)
     for label, value in pairs:
         f = field_for_label(label)
         if f and doc.fields[f] is None:
@@ -65,7 +67,7 @@ def read_txt(data: bytes) -> Doc:
         elif ":" in ln:
             label, _, value = ln.partition(":")
             pairs.append([label, value.strip()])
-    return _doc_from_pairs(head, [(a, b) for a, b in pairs])
+    return _doc_from_pairs(head, [(a, b) for a, b in pairs], text="\n".join(lines))
 
 
 def read_docx(data: bytes) -> Doc:
@@ -78,7 +80,8 @@ def read_docx(data: bytes) -> Doc:
         if ":" in p:
             label, _, value = p.partition(":")
             pairs.append((label, value))
-    return _doc_from_pairs(" ".join(paras[:6]), pairs)
+    text = "\n".join(paras + [f"{a.strip()}: {b.strip()}" for a, b in pairs if a.strip()])
+    return _doc_from_pairs(" ".join(paras[:6]), pairs, text=text)
 
 
 def _cell(v) -> str:
@@ -96,7 +99,8 @@ def read_xlsx(data: bytes) -> Doc:
     rows = [tuple(_cell(c) for c in row[:2]) for row in ws.iter_rows(values_only=True)]
     rows = [r for r in rows if any(r)]
     head = " ".join(" ".join(r) for r in rows[:5])
-    return _doc_from_pairs(head, [(r[0], r[1] if len(r) > 1 else "") for r in rows])
+    text = "\n".join(f"{r[0]}: {r[1]}" if len(r) > 1 and r[1] else r[0] for r in rows)
+    return _doc_from_pairs(head, [(r[0], r[1] if len(r) > 1 else "") for r in rows], text=text)
 
 
 def _pdf_lines(data: bytes) -> list[str]:
@@ -125,7 +129,7 @@ def read_pdf(data: bytes) -> Doc:
     except Exception as exc:  # corrupt / truncated stream
         return Doc(kind="UNKNOWN", unreadable=True, error=f"{type(exc).__name__}: {exc}")
     if sum(len(ln) for ln in lines) < MIN_PDF_TEXT_CHARS:
-        return Doc(kind="UNKNOWN", unreadable=True, error="no text layer (image-only scan)")
+        return Doc(kind="UNKNOWN", unreadable=True, scanned=True, error="no text layer (image-only scan)")
 
     pairs: list[list[str]] = []
     current = False
@@ -145,7 +149,7 @@ def read_pdf(data: bytes) -> Doc:
         elif current:
             pairs[-1][1] += "\n" + ln
 
-    doc = _doc_from_pairs(" ".join(lines[:4]), [])
+    doc = _doc_from_pairs(" ".join(lines[:4]), [], text="\n".join(lines))
     for f, value in pairs:
         if doc.fields[f] is None:
             doc.fields[f] = None if is_blank(value) else value.strip()

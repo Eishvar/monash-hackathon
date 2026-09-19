@@ -45,6 +45,23 @@ parentheticals and country dropped); container_count compares the number only (n
 parsed numbers. Missing/placeholder values (`N/A`, `TBA`, `____`) → NEEDS_REVIEW/missing_value, never a mismatch.
 Review precedence: missing_attachment > unreadable > wrong_doc_type > missing_value.
 
+**D11 · Model IDs, verified live; swappable via env** (2026-09-20)
+Text = Groq `qwen/qwen3.8-27b` (the requested 3.6 doesn't exist on Groq; 3.8-27B is its active Qwen), vision = OpenRouter
+`google/gemini-2.5-flash`. Names exist only in `DEFAULT_MODELS` in `sdoc/config.py`; `.env` overrides per role
+(`LLM_TEXT_MODEL`) or per task (`LLM_MODEL_CLASSIFY`). Groq's free tier caps qwen3.8 at 1,000 output tokens/min, so calls
+honour `retry-after`, outputs are token-capped per task, and everything is disk-cached by content hash.
+
+**D12 · The LLM reads, code decides (trust rules)** (2026-09-20)
+LLM extraction may only fill a field the rules left empty, must quote evidence found verbatim in the document, and never
+fills placeholders (`____`, `N/A`, `TBA`), so genuine `missing_value` cases stay escalated. The adjudicator is gated by
+typo-level similarity (≥0.95) and can only clear a mismatch, never create one. Explanations never change status.
+LLM failures degrade to the rule result and are listed in `details.json` notes ("failed"), never silent.
+
+**D13 · Scans follow D6** (2026-09-20)
+Image-only PDFs stay NEEDS_REVIEW/`unreadable` (matches the 5 gold cases); Gemini reads the page images to produce
+suggested values and a provisional SI-vs-BL comparison (`details.provisional_fields`) for the reviewer. Corrupt files
+can't be rendered and get no suggestion. Observed OCR noise ("STATIONERYLLC") is why a human confirms.
+
 **D7 · Vercel routing via vercel.json, not a Next rewrite** (2026-09-19)
 A Python function in `api/index.py` is served at `/api/index`. `vercel.json` rewrites `/api/py/*` to it in production, so
 the whole FastAPI app (all routes under `/api/py`) runs in one function. `next.config.ts` only proxies to local uvicorn in dev.

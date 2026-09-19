@@ -38,6 +38,7 @@ class Classification:
     category: str
     matched: bool  # False => no rule fired; defaulted to GENERAL and should go to the LLM
     compare_intent: bool = False  # BL_COMPARISON only: the sender wants documents compared (vs. asking for a BL)
+    decided_by: str = "rule"
 
 
 def body_head(body: str, limit: int = 700) -> str:
@@ -65,3 +66,14 @@ def classify(body: str, attachment_names: list[str]) -> Classification:
     if INVOICE_QUERY.search(head):
         return Classification("INVOICE_QUERY", True)
     return Classification("GENERAL", False)
+
+
+def classify_llm(llm, body: str, attachment_names: list[str]) -> Classification:
+    """Fallback for emails no rule matched. The LLM only reads; compare_intent still comes from the deterministic rule."""
+    from sdoc import prompts
+    from sdoc.schemas import ClassifyOut
+
+    user = f"Attachments: {', '.join(attachment_names) or 'none'}\n\nEmail body:\n{body_head(body, 1500)}"
+    out = llm.complete_json("classify", prompts.CLASSIFY_SYSTEM, user, ClassifyOut)
+    intent = out.category == "BL_COMPARISON" and (bool(attachment_names) or bool(BL_COMPARISON.search(body_head(body))))
+    return Classification(out.category, True, compare_intent=intent, decided_by="llm")
