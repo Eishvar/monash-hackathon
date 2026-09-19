@@ -1,0 +1,7 @@
+﻿sdoc-hackathon-bundle
+tests
+docs
+outputs
+.cache
+.venv
+.claude

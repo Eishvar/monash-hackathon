@@ -1,6 +1,5 @@
 """Per-email pipeline: classify -> (BL_COMPARISON) parse SI/BL -> LLM gap-fill / vision -> compare -> adjudicate ->
 decide -> explain. Rules go first; the LLM is used only where they abstain. Code makes the final decision."""
-import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,6 +14,7 @@ from sdoc.extract import fill_gaps, llm_extract, needs_llm_extraction, vision_ex
 from sdoc.llm import LLM, LLMError
 from sdoc.parse import Doc, read_document
 from sdoc.parse.render import render_pdf_pages
+from sdoc.store import AttachmentStore, LocalStore
 
 
 @dataclass
@@ -31,9 +31,10 @@ def _role(name: str, doc: Doc) -> str | None:
 
 
 class Pipeline:
-    def __init__(self, llm: LLM | None = None, root: Path = BUNDLE):
+    def __init__(self, llm: LLM | None = None, root: Path = BUNDLE, store: AttachmentStore | None = None):
         self.llm = llm
         self.root = root
+        self.store = store or LocalStore(root)
 
     # -- stages ------------------------------------------------------------------------------------------------
     def _classify(self, email: dict, notes: list[str]) -> Classification:
@@ -50,7 +51,7 @@ class Pipeline:
         blobs: dict[str, bytes] = {}
         used_llm = False
         for name in attachments:
-            data = (self.root / name).read_bytes()
+            data = self.store.read(name)
             doc = read_document(name, data)
             role = _role(name, doc)
             if not role or role in docs:
@@ -136,8 +137,4 @@ class Pipeline:
         return Result(record, details)
 
     def process_inbox(self) -> dict[str, Result]:
-        out = {}
-        for path in sorted((self.root / "inbox").glob("email_*.json")):
-            email = json.loads(path.read_text(encoding="utf-8"))
-            out[email["email_id"]] = self.process_email(email)
-        return out
+        return {e["email_id"]: self.process_email(e) for e in LocalStore(self.root).emails()}

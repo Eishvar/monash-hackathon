@@ -1,4 +1,4 @@
-"""The only module that talks to an LLM provider.
+﻿"""The only module that talks to an LLM provider.
 
 One OpenAI-compatible client. Every call is: cached by content hash -> provider call with retry/backoff ->
 JSON parsed and validated against a Pydantic schema (one repair retry). Failures raise `LLMError`; callers turn
@@ -10,6 +10,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Protocol, TypeVar
 
 from pydantic import BaseModel, ValidationError
@@ -74,9 +75,64 @@ def _extract_json(text: str) -> dict:
     return json.loads(text[start : end + 1])
 
 
+class DiskCache:
+    def __init__(self, path: Path):
+        self.path = path
+
+    def get(self, key: str) -> dict | None:
+        try:
+            return json.loads((self.path / f"{key}.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+
+    def put(self, key: str, data: dict) -> None:
+        try:
+            self.path.mkdir(parents=True, exist_ok=True)
+            (self.path / f"{key}.json").write_text(json.dumps(data), encoding="utf-8")
+        except OSError:
+            pass  # read-only filesystem: caching is an optimisation, not a requirement
+
+
+class RepoCache:
+    """Durable cache in the database (`llm_cache` table). Errors degrade to a cache miss."""
+
+    def __init__(self, repo):
+        self.repo = repo
+
+    def get(self, key: str) -> dict | None:
+        try:
+            return self.repo.cache_get(key)
+        except Exception:
+            return None
+
+    def put(self, key: str, data: dict) -> None:
+        try:
+            self.repo.cache_put(key, data)
+        except Exception:
+            pass
+
+
+class TieredCache:
+    """Fast local cache in front of a durable one; hits in the durable tier are copied forward."""
+
+    def __init__(self, fast, durable):
+        self.fast, self.durable = fast, durable
+
+    def get(self, key: str) -> dict | None:
+        if (v := self.fast.get(key)) is not None:
+            return v
+        if (v := self.durable.get(key)) is not None:
+            self.fast.put(key, v)
+        return v
+
+    def put(self, key: str, data: dict) -> None:
+        self.fast.put(key, data)
+        self.durable.put(key, data)
+
+
 class OpenAICompatLLM:
-    def __init__(self, cache_path=None, sleep=time.sleep):
-        self.cache_path = cache_path or cache_dir()
+    def __init__(self, cache=None, cache_path=None, sleep=time.sleep):
+        self.cache = cache or DiskCache(Path(cache_path) if cache_path else cache_dir())
         self.usage = Usage()
         self._sleep = sleep
         self._clients: dict[str, object] = {}
@@ -90,19 +146,6 @@ class OpenAICompatLLM:
         for img in images or []:
             h.update(hashlib.sha256(img).digest())
         return h.hexdigest()
-
-    def _cache_get(self, key: str) -> dict | None:
-        try:
-            return json.loads((self.cache_path / f"{key}.json").read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return None
-
-    def _cache_put(self, key: str, data: dict) -> None:
-        try:
-            self.cache_path.mkdir(parents=True, exist_ok=True)
-            (self.cache_path / f"{key}.json").write_text(json.dumps(data), encoding="utf-8")
-        except OSError:
-            pass  # read-only filesystem: caching is an optimisation, not a requirement
 
     # -- provider call ---------------------------------------------------------------------------------------
     def _client(self, spec: ModelSpec):
@@ -158,7 +201,7 @@ class OpenAICompatLLM:
         if not spec.api_key:
             raise LLMError(f"no API key for provider {spec.provider!r}")
         key = self._key(spec, task, system, user, schema, images)
-        if (cached := self._cache_get(key)) is not None:
+        if (cached := self.cache.get(key)) is not None:
             try:
                 obj = schema.model_validate(cached)
                 self.usage.cache_hits += 1
@@ -181,7 +224,7 @@ class OpenAICompatLLM:
             try:
                 data = _extract_json(raw)
                 obj = schema.model_validate(data)
-                self._cache_put(key, obj.model_dump(mode="json"))
+                self.cache.put(key, obj.model_dump(mode="json"))
                 self.usage.by_task[task] = self.usage.by_task.get(task, 0) + 1
                 return obj
             except (ValueError, ValidationError) as exc:
