@@ -1,48 +1,61 @@
 # Architecture
 
 ## Flow
+```mermaid
+flowchart LR
+    UI[Next.js UI<br/>Vercel] -->|/api/py/*| API[FastAPI<br/>Vercel Python function]
+    API --> SVC[sdoc.service]
+    SVC --> PIPE[sdoc.pipeline]
+    SVC <--> DB[(Supabase Postgres<br/>emails · results · reviews · runs · llm_cache)]
+    PIPE <--> ST[(Supabase Storage<br/>attachments bucket)]
+    PIPE --> LLM[sdoc.llm<br/>OpenAI-compatible client]
+    LLM --> G[Groq<br/>text tasks]
+    LLM --> O[OpenRouter<br/>vision]
+    LLM <--> CACHE[(disk cache + llm_cache table)]
 ```
-            ┌────────────── Vercel (serverless) ──────────────┐
- Supabase   │ FastAPI  /api/py/*   (Python, sdoc/ package)    │    LLM APIs (OpenAI-compatible)
- Storage ──►│ 1 Parse  → 2 Classify → 3 Extract → 4 Compare    │◄──► Groq (text) / OpenRouter (vision)
- (emails,   │   txt/docx/  rules→LLM    rules→LLM   normalize   │
- attach.)   │   xlsx/pdf,              →vision     →adjudicate │
-            │   scan detect                         → 5 Decide │
-            └───────────────┬──────────────────────────────────┘
-                            ▼
-                  Supabase Postgres: results, reviews (audit), runs
-                            ▲
-            Next.js UI (Vercel): inbox triage · SI vs BL report · review queue · metrics
-```
-Local path (for fast iteration): `scripts/run_pipeline.py` runs the same `sdoc/` code over the bundle and writes
-`outputs/submission.json`, then `scripts/score.py` scores it.
+Local path (fast iteration): `scripts/run_pipeline.py` runs the same `sdoc/` code over the bundle and writes
+`outputs/submission.json`; `scripts/score.py` scores it. The cloud path (`scripts/cloud_run.py`) drives the deployed API.
 
-## Stages (all in `sdoc/`)
-1. **Parse** (`parse/`): file → `DocText{text, tables, method: text|vision, error}`. Detects corrupt files
-   (→ unreadable) and image-only PDFs (→ render pages to PNG for the vision LLM).
-2. **Classify** (`classify.py`): rule scorer over body intent phrases, attachment presence/names and spam signals.
-   Confident → `decided_by="rule"`. Ambiguous → LLM with JSON output → `decided_by="llm"`.
-3. **Extract** (`extract.py`): verify doc type (title/keywords, LLM fallback) → label-alias parser
-   (`FIELD_ALIASES`) produces the 7 fields, each with a source-evidence snippet. LLM fallback for missing or
-   low-confidence fields; vision LLM for scans. LLM values must quote evidence that exists in the source text.
-4. **Compare** (`normalize.py`, `compare.py`): per-field normalisers (party name, port/UN-LOCODE, container count
-   incl. table rows, weight in kg incl. tonnes and row sums) → `equal | format_diff | mismatch | uncertain`.
-   `uncertain` pairs (e.g. near-identical party names) go to the LLM adjudicator: real discrepancy vs formatting.
-5. **Decide** (`decide.py`): not a comparison → done; <2 docs → missing_attachment; unparseable → unreadable;
-   wrong type → wrong_doc_type; a required value blank → missing_value; else OK / MISMATCH + exact defect_fields.
-   An LLM writes a short reviewer explanation for MISMATCH and NEEDS_REVIEW.
-6. **Human review**: reviewer confirms or corrects field values → re-run Decide → result updated + audit row.
-   Failed processing is stored as a visible state and can be retried.
+## Pipeline stages (all in `sdoc/`)
+1. **Parse** (`parse/readers.py`, `parse/labels.py`, `parse/render.py`): file → `Doc{kind, 7 raw fields, text, unreadable, scanned}`.
+   Every format yields (label, value) pairs; labels align to fields by meaning (`ALIASES`); PDFs are read as words in stream
+   order (a wrapped label can overlap its value column, D9), container tables are counted and summed. Corrupt files and
+   image-only PDFs are detected, never raised.
+2. **Classify** (`classify.py`): rules over the body's opening text and attachment names, not the subject. A rule that fires is
+   final; when none does (`matched=False`) the text LLM classifies (`decided_by="llm"`). "Send me the draft BL" is a
+   BL_COMPARISON with nothing to compare (D8).
+3. **Extract** (`extract.py`): rules first. A field left empty gets an LLM gap-fill that must quote evidence present in the
+   source; scanned PDFs are rendered to PNG and read by the vision model, values kept as suggestions (D13).
+4. **Compare** (`normalize.py`, `compare.py`, `adjudicate.py`): per-field normalisers (party name/address, port name, container
+   count, weight incl. tonnes) then exact comparison on normalised values (D10). Near-identical pairs (similarity ≥ 0.95) may be
+   sent to the LLM adjudicator, which can only clear a mismatch.
+5. **Decide** (`decide.py`): precedence `missing_attachment > unreadable > wrong_doc_type > missing_value`, else `OK` or
+   `MISMATCH` with the exact `defect_fields`. Pure function, no LLM.
+6. **Explain** (`explain.py`): 1–2 sentence reviewer text for MISMATCH/NEEDS_REVIEW; never changes status.
+7. **Human review** (`service.review`): a person confirms or corrects values → `decide()` recomputes → result updated and a
+   `reviews` audit row written (before/after).
 
-## Data model (Supabase)
-- `emails` (id, sender, subject, body, attachments jsonb)
-- `documents` (email_id, role SI|BL, storage_path, format, parse_status, parse_method, text)
-- `results` (email_id PK, category, status, review_reason, has_defect, defect_fields, decided_by,
-  fields jsonb {field: {si, bl, si_evidence, bl_evidence, verdict}}, explanation, run_id, reviewed, updated_at)
-- `reviews` (id, email_id, action confirm|correct, before jsonb, after jsonb, note, created_at) — audit trail
-- `runs` (id, started_at, finished_at, provider, models, stats jsonb, score jsonb)
+Cross-cutting: `llm.py` is the only module that talks to a provider (JSON schema validation, one repair retry, retry with the
+provider's `retry-after`, per-task token caps, content-hash cache). `config.py` holds the only default model names; `.env`
+overrides per role or task (D11).
 
-## API (`api/index.py`, prefix `/api/py`)
-`GET /health` · `GET /emails?category&status` · `GET /emails/{id}` · `POST /process/{id}` (process / retry) ·
-`POST /process-batch` (small batches; the UI loops for the full inbox) · `GET /review-queue` ·
-`POST /reviews/{id}` · `GET /export/submission` · `GET /metrics` (counts, rule share, LLM calls, latency)
+## Application layer
+- `service.py`: process one/batch (time-budgeted for serverless), review + recompute, export in the scorer's shape, metrics.
+  Failures become a persisted `ERROR` row (visible, retryable).
+- `db.py`: `Repository` protocol with `SupabaseRepo` and an in-memory fake; `SupabaseHandle` gives each thread its own client
+  because the HTTP/2 connection is not thread-safe (D17). `store.py`: `AttachmentStore` (local bundle / Supabase Storage).
+- `api/index.py`: thin FastAPI routes under `/api/py`, request-size caps; `vercel.json` rewrites `/api/py/*` to the function (D7).
+- `src/`: Next.js 16 client components calling the API: inbox, email report (side-by-side SI vs BL), review panel,
+  review queue, process, metrics (D16).
+
+## Data model (Supabase, `supabase/schema.sql`, RLS on with no policies: only the backend's service key)
+- `emails` (email_id, sender, subject, body, attachments jsonb)
+- `results` (email_id PK; category, status, review_reason, has_defect, defect_fields, decided_by; `fields` and
+  `provisional_fields` jsonb; explanation; notes; processing_error; reviewed; run_id; updated_at)
+- `reviews` (id, email_id, action confirm|correct, before, after, note, created_at) — audit trail
+- `runs` (id, models, stats, score) · `llm_cache` (key, response)
+- Storage: private `attachments` bucket, same relative paths as the bundle.
+
+## API (`/api/py`)
+`GET /health` · `GET /emails?category&status&limit&offset` · `GET /emails/{id}` · `POST /process/{id}` ·
+`POST /process-batch` · `GET /review-queue` · `POST /reviews/{id}` · `GET /export/submission` · `GET /metrics`

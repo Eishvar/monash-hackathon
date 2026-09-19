@@ -7,7 +7,7 @@ import os
 from functools import lru_cache
 
 from fastapi import Depends, FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from sdoc.service import BadRequest, NotFound, Service, build_service
 
@@ -27,16 +27,16 @@ def get_service() -> Service:
 
 
 class BatchRequest(BaseModel):
-    ids: list[str] | None = None
-    limit: int = 10
+    ids: list[str] | None = Field(default=None, max_length=50)  # small caps: the API is open, and each email may call an LLM
+    limit: int = Field(default=10, ge=1, le=50)
     only_unprocessed: bool = True
-    run_id: str | None = None
+    run_id: str | None = Field(default=None, max_length=64)
 
 
 class ReviewRequest(BaseModel):
     action: str  # confirm | correct
-    corrections: dict[str, dict[str, str | None]] = {}  # {field: {"si": "...", "bl": "..."}}
-    note: str | None = None
+    corrections: dict[str, dict[str, str | None]] = Field(default={}, max_length=7)  # {field: {"si": "...", "bl": "..."}}
+    note: str | None = Field(default=None, max_length=500)
 
 
 def _call(fn, *args, **kwargs):

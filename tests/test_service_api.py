@@ -170,3 +170,10 @@ def test_supabase_handle_gives_each_thread_its_own_client(monkeypatch):
     t.join()
     assert handle.client is handle.client  # stable within a thread
     assert seen[0] is not handle.client and len(made) == 2  # distinct across threads
+
+
+def test_open_api_request_size_caps(client):
+    assert client.post("/api/py/process-batch", json={"ids": [f"email_{i}" for i in range(51)]}).status_code == 422
+    assert client.post("/api/py/process-batch", json={"limit": 500}).status_code == 422
+    assert client.post("/api/py/process-batch", json={"limit": 0}).status_code == 422
+    assert client.post("/api/py/reviews/email_001", json={"action": "confirm", "note": "x" * 501}).status_code == 422

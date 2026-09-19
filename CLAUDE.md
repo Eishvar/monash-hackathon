@@ -26,7 +26,7 @@ Cascade **rules → LLM → vision LLM → human review**. Principle: **"the LLM
 LLMs: classify ambiguous emails, extract fields from messy/scanned docs, adjudicate candidate mismatches
 (real vs formatting), write reviewer explanations. Field normalisation + final status are deterministic Python.
 - Backend: Python 3.12-compatible package `sdoc/` + FastAPI in `api/index.py` (Vercel Python function, routes `/api/py/*`)
-- Frontend: Next.js 16 + TypeScript + Tailwind in `src/` (built Day 2). Next 16 has breaking changes: before writing
+- Frontend: Next.js 16 + TypeScript + Tailwind in `src/` (done: inbox, report, review, process, metrics). Next 16 has breaking changes: before writing
   Next code, read `AGENTS.md` and the relevant guide in `node_modules/next/dist/docs/`.
 - Cloud: Vercel (compute, CI/CD) + Supabase (Postgres + Storage). Processing must run in the cloud, not only locally.
 - LLM: one OpenAI-compatible client in `sdoc/llm.py`. Provider/model per task come from `.env`
@@ -35,20 +35,23 @@ LLMs: classify ambiguous emails, extract fields from messy/scanned docs, adjudic
 ## Layout
 ```
 api/index.py        FastAPI entry (thin: routes only, calls sdoc/)
-sdoc/               pipeline: config, llm, parse/, classify, extract, normalize, compare, decide, pipeline, db
-scripts/            run_pipeline.py (→ outputs/submission.json), score.py (organizer scorer wrapper)
-tests/              pytest (normalizers, compare, decide)
-src/                Next.js UI
-docs/               SPEC, RUBRIC, ARCHITECTURE, DECISIONS, DATA_NOTES, PLAN, WORKFLOW
+sdoc/               config, llm, parse/, classify, extract, normalize, compare, decide, adjudicate, explain,
+                    pipeline, service, db, store, metrics
+supabase/schema.sql tables + RLS (applied by hand in the Supabase SQL editor)
+scripts/            run_pipeline, score (organizer scorer wrapper), evaluate, seed_supabase, cloud_run
+tests/              pytest: parsers, normalizers, decide, AI layer (fakes), stress, API, unseen phrasings
+src/                Next.js UI (client components calling /api/py)
+docs/               SPEC, RUBRIC, ARCHITECTURE, DECISIONS, DATA_NOTES, PLAN, WORKFLOW, DEMO
 sdoc-hackathon-bundle/   dataset (read-only input)
 sdoc-hackathon-docker/   organizer kit incl. ANSWER KEY — gitignored, never read (see Rules)
 ```
 
 ## Commands (Windows PowerShell)
-- Setup: `python -m venv .venv; .venv\Scripts\Activate.ps1; pip install -r requirements.txt; npm install`
-- Pipeline: `python scripts/run_pipeline.py` → `outputs/submission.json`
-- Score: `python scripts/score.py` (aggregate scores only)
-- Tests: `pytest -q`
+- Setup: `python -m venv .venv; .venv\Scripts\Activate.ps1; pip install -r requirements-dev.txt; npm install`
+- Pipeline: `python scripts/run_pipeline.py [--no-llm]` → `outputs/submission.json`
+- Score: `python scripts/score.py` (aggregate scores only); ablation + unseen phrasings: `python scripts/evaluate.py`
+- Tests: `pytest -q` (CI also runs `npm run lint`, `npx tsc --noEmit`, `npm run build`)
+- Cloud: `python scripts/seed_supabase.py`, `python scripts/cloud_run.py` (drives the deployed API)
 - Dev: `uvicorn api.index:app --reload --port 8000` + `npm run dev` (Next proxies `/api/py/*` to :8000)
 
 ## Rules
