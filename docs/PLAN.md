@@ -1,17 +1,18 @@
 # Plan — 2-day build (started 2026-09-19)
 
 ## Next session
-M0–M3 done. M4 is verified end to end **locally against real Supabase** (schema applied, 520 emails + 250 attachments +
-140 cache rows seeded, all 520 processed via the API, export scored 1.0000, 0 errors, 20 in review queue, review round-trip
-on email_512 recomputed status + wrote audit row; test edit reverted). **Only remaining M4 item:** the deployed Vercel app
-(`/api/py/health` -> `configured`) still shows all four env vars `false` in production, so its data routes return 503.
-Fix = user adds `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY` under Project ->
-Settings -> Environment Variables with the **Production** box ticked (check it is the `monash-hackathon` project),
-then Redeploy. Then run `python scripts/cloud_run.py` (defaults to the deployed URL; use `--reprocess` to recompute in
-the cloud) and confirm ~1.000; tick M4. Then M5 (UI). Models are swapped via `.env`, never in code.
-Known small issue: `norm_port` on scan OCR keeps the country when there is no comma ("NHAVA SHEVA INDIA" vs
-"NHAVA SHEVA, INDIA" -> provisional mismatch); irrelevant to scoring, humans confirm scans.
-Suggested opening prompt: "Read docs/PLAN.md, verify the deployed cloud run (env vars now set), then M5. Plan first."
+M0–M4 done and verified in the cloud. The backend is complete: `https://monash-hackathon-five.vercel.app/api/py/*`
+(docs at `/api/py/docs`) serves emails/results from Supabase; `python scripts/cloud_run.py --reprocess` reprocessed all 520
+emails on Vercel (747 s, 6 cold vision LLM calls ≈ $0.009, 125 cache hits) and the exported submission scored **1.0000**.
+Next is **M5 (UI)**: Next.js 16 in `src/` (read `AGENTS.md` + `node_modules/next/dist/docs/` first; the frontend-design
+plugin is recommended). Screens: inbox triage with category/status filters, email report (SI vs BL side by side like
+`SI: 3 / BL: 4`, "No mismatch detected.", evidence, explanation, provisional scan values), review queue
+(confirm/correct -> `POST /reviews/{id}`), process-inbox progress (`POST /process-batch`), metrics page (`GET /metrics`).
+Then M6 (README, CI, demo). Models are swapped via `.env`, never in code.
+Known small issues: `norm_port` on scan OCR keeps the country when there is no comma ("NHAVA SHEVA INDIA" vs
+"NHAVA SHEVA, INDIA" -> provisional mismatch; irrelevant to scoring). Cloud batches take 12-50 s per 15 emails
+(Supabase round-trips); the API is unauthenticated (README limitation).
+Suggested opening prompt: "Read docs/PLAN.md and do M5. Plan first."
 
 ## User TODO (accounts, can't be automated)
 - [x] Install GitHub CLI + `gh auth login` (binary at `C:\Program Files\GitHub CLI\gh.exe`, not on PATH in Claude's shell)
@@ -19,7 +20,7 @@ Suggested opening prompt: "Read docs/PLAN.md, verify the deployed cloud run (env
 - [x] Vercel: import the repo, confirm the first deploy works
 - [x] Supabase project + URL/service key in `.env`; Groq + OpenRouter keys in `.env`
 - [x] **M4 step 1:** run `supabase/schema.sql` in Supabase dashboard -> SQL Editor -> New query -> Run
-- [ ] **M4 step 2 (still failing: production sees none of them):** Vercel project -> Settings -> Environment Variables: add `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+- [x] **M4 step 2:** Vercel project -> Settings -> Environment Variables: add `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
       `GROQ_API_KEY`, `OPENROUTER_API_KEY` (Production), then redeploy
 
 ## Milestones
@@ -35,7 +36,7 @@ Suggested opening prompt: "Read docs/PLAN.md, verify the deployed cloud run (env
       normalisation, `tests/data/paraphrases.json` (36 unseen phrasings: rules-only 67% -> rules+LLM 100%), `sdoc/metrics.py`,
       `scripts/evaluate.py` -> `outputs/metrics.json` (bundle: rules-only 1.000 vs rules+LLM 1.000; the bundle is rule-friendly,
       the paraphrase set is the generalisation evidence)
-- [ ] **M4 cloud backend** (code done + deployed, 124 tests; needs user steps 1-2 above, then seed + cloud verification): Supabase schema + seed (emails + attachments to Storage); FastAPI endpoints; cloud batch
+- [x] **M4 cloud backend** (124 tests; seeded; cloud run exported 520 records, score 1.0000): Supabase schema + seed (emails + attachments to Storage); FastAPI endpoints; cloud batch
       processing; review → recompute → audit
 
 ### Day 2 — frontend + submission (new session; install the frontend-design plugin first)
@@ -53,3 +54,5 @@ Suggested opening prompt: "Read docs/PLAN.md, verify the deployed cloud run (env
 | 09-19 | PDF words in stream order (wrapped label overlapped value); SI_REQUEST narrowed to "shipping instruction for" | 1.000 | 1.000 | 1.000 | 46/46 | 20/20 | 100% |
 | 09-20 | M2 first LLM run (Groq qwen3.8-27b + Gemini 2.5 Flash vision): LLM classifies the 60 unmatched emails | 0.9946 | 0.982 | 1.000 | 46/46 | 20/20 | 88% |
 | 09-20 | Prompt: bulk "reminder to submit SI" is GENERAL; rate-limit backoff; token caps; scan explanations | 1.000 | 1.000 | 1.000 | 46/46 | 20/20 | 88% (63 LLM) |
+| 09-20 | M4: processed via API into Supabase (local uvicorn), export from the DB | 1.000 | 1.000 | 1.000 | 46/46 | 20/20 | 88% |
+| 09-20 | M4: reprocessed on the deployed Vercel app + Supabase (`cloud_run.py --reprocess`), export from the DB | 1.000 | 1.000 | 1.000 | 46/46 | 20/20 | 88% |

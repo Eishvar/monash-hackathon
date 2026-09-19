@@ -44,6 +44,8 @@ def main() -> None:
         r.raise_for_status()
         body = r.json()
         done += len(body["processed"])
+        if ids is not None:  # the server stops at its time budget: requeue whatever it did not get to
+            ids = [i for i in chunk if i not in body["processed"]] + ids
         print(f"  processed {done}, remaining {body['remaining']} ({body['seconds']}s)")
         if ids is None and (body["remaining"] == 0 or not body["processed"]):
             break
