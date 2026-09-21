@@ -267,6 +267,23 @@ class Service:
                         "created_at": r.get("created_at")} for r in recent],
         }
 
+    def pipeline_stats(self) -> dict:
+        """How the cascade decided every email (rules -> AI -> vision -> human), from columns already stored."""
+        rows = self.repo.all_results("email_id,category,status,review_reason,decided_by,reviewed,provisional_fields")
+        bl = [r for r in rows if r["category"] == "BL_COMPARISON"]
+        funnel = {
+            "emails": len(rows),
+            "decided_by_rules": sum(r["decided_by"] == "rule" for r in rows),
+            "needed_ai": sum(r["decided_by"] == "llm" for r in rows),
+            "bl_comparisons": len(bl),
+            "ok": sum(r["status"] == "OK" for r in bl),
+            "mismatch": sum(r["status"] == "MISMATCH" for r in bl),
+            "needs_review": sum(r["status"] in ("NEEDS_REVIEW", "ERROR") for r in bl),
+            "vision_used": sum(bool(r.get("provisional_fields")) for r in rows),
+            "human_reviewed": sum(bool(r.get("reviewed")) for r in rows),
+        }
+        return {"funnel": funnel, "stages": {}}
+
     # -- outputs -----------------------------------------------------------------------------------------------
     def export_submission(self, include_extra: bool = False) -> dict[str, dict]:
         """The organiser's submission shape. By default dataset emails only (what the scorer expects); the UI's

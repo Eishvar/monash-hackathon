@@ -5,6 +5,7 @@ import type { Metrics } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { AccuracyCard } from "@/components/AccuracyCard";
 import { OutcomeDonutCard, ProcessedBarCard } from "@/components/InboxCharts";
+import { AccuracySection, DiscrepancySection, HumanSection, PipelineSection } from "@/components/MetricsSections";
 import { ShippingRouteMap } from "@/components/ShippingRouteMap";
 
 export default function MetricsPage() {
@@ -24,6 +25,10 @@ export default function MetricsPage() {
         <OutcomeDonutCard metrics={m} />
         <AccuracyCard metrics={m} />
       </div>
+      <AccuracySection />
+      <DiscrepancySection metrics={m} />
+      <PipelineSection />
+      <HumanSection />
       <ShippingRouteMap />
     </div>
   );

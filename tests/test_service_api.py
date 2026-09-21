@@ -380,3 +380,12 @@ def test_review_preview_recomputes_without_writing_and_stats_count_reviews(clien
     assert s["transitions"] == {"NEEDS_REVIEW→MISMATCH": 1}
     assert s["fields_corrected"] == {"consignee": 1} and s["queue_open"] == 0
     assert {r["email_id"] for r in s["recent"]} == {"email_002", "email_003"}
+
+
+def test_pipeline_stats_funnel_counts_the_cascade(client, svc):
+    svc.process_batch(limit=10)
+    svc.review("email_003", "correct", {"consignee": {"bl": BASE["consignee"]}})
+    f = client.get("/api/py/metrics/pipeline").json()["funnel"]
+    assert (f["emails"], f["decided_by_rules"], f["needed_ai"]) == (5, 5, 0)
+    assert (f["bl_comparisons"], f["ok"], f["mismatch"], f["needs_review"]) == (4, 2, 1, 1)
+    assert (f["vision_used"], f["human_reviewed"]) == (0, 1)

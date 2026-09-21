@@ -104,6 +104,11 @@ def metrics_reviews(svc: Service = Depends(get_service)):
     return svc.review_stats()
 
 
+@app.get("/api/py/metrics/pipeline")
+def metrics_pipeline(svc: Service = Depends(get_service)):
+    return svc.pipeline_stats()
+
+
 @app.get("/api/py/export/submission")
 def export_submission(include_extra: bool = False, svc: Service = Depends(get_service)):
     return svc.export_submission(include_extra)

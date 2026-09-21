@@ -171,6 +171,22 @@ export interface Metrics {
   latest_run: { id: string; models: Record<string, string> | null; started_at: string } | null;
 }
 
+export interface PipelineStats {
+  funnel: {
+    emails: number;
+    decided_by_rules: number;
+    needed_ai: number;
+    bl_comparisons: number;
+    ok: number;
+    mismatch: number;
+    needs_review: number;
+    vision_used: number;
+    human_reviewed: number;
+  };
+  stages: Record<string, { count: number; by_method: Record<string, number>; p50_ms: number; p95_ms: number }>;
+  traced?: number;
+}
+
 export interface BatchResponse {
   run_id: string;
   processed: string[];

@@ -1,9 +1,10 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, ChevronDown } from "lucide-react";
 import type { Metrics } from "@/lib/api";
 import validation from "@/data/validation.json";
+import benchmark from "@/data/benchmark.json";
 
 const pct = (x: number) => Math.round(x * 1000) / 10;
 const s = validation.bundle.scores;
@@ -15,6 +16,15 @@ const VIEWS = {
       { label: "Email classification", value: pct(s.classification_f1) },
       { label: "Mismatch detection", value: pct(s.defect_f1) },
       { label: "Review escalation", value: pct(s.escalation_recall) },
+    ],
+  },
+  heldout: {
+    label: "Held-out benchmark",
+    bars: [
+      { label: "Exact match", value: pct(benchmark.exact_match_rate) },
+      { label: "Defect F1", value: pct(benchmark.defect.f1) },
+      { label: "Escalation recall", value: pct(benchmark.escalation.recall) },
+      { label: "No false alarms", value: pct(1 - benchmark.false_alarm_rate) },
     ],
   },
   unseen: {
@@ -129,3 +139,4 @@ export function AccuracyCard({ metrics: m }: { metrics: Metrics | null }) {
     </section>
   );
 }
+
