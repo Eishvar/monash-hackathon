@@ -1,0 +1,138 @@
+{
+  "generated": "2026-09-21T23:56:43+00:00",
+  "seed": 7,
+  "n": 500,
+  "mode": "rules",
+  "exact_match_rate": 0.998,
+  "false_alarm_rate": 0.0,
+  "defect": {
+    "precision": 0.9972,
+    "recall": 1.0,
+    "f1": 0.9986
+  },
+  "per_field": {
+    "shipper": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "support": 58
+    },
+    "consignee": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "support": 57
+    },
+    "notify_party": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "support": 42
+    },
+    "port_of_loading": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "support": 53
+    },
+    "port_of_discharge": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "support": 47
+    },
+    "container_count": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "support": 49
+    },
+    "gross_weight_kg": {
+      "precision": 0.9778,
+      "recall": 1.0,
+      "f1": 0.9888,
+      "support": 44
+    }
+  },
+  "escalation": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "reason_accuracy": 1.0
+  },
+  "per_case_type": {
+    "blank": {
+      "n": 38,
+      "exact": 1.0
+    },
+    "clean": {
+      "n": 193,
+      "exact": 1.0
+    },
+    "defect": {
+      "n": 159,
+      "exact": 0.9937
+    },
+    "missing": {
+      "n": 21,
+      "exact": 1.0
+    },
+    "near_miss": {
+      "n": 28,
+      "exact": 1.0
+    },
+    "unreadable": {
+      "n": 28,
+      "exact": 1.0
+    },
+    "wrong_doc": {
+      "n": 33,
+      "exact": 1.0
+    }
+  },
+  "per_format": {
+    "corrupt": {
+      "n": 15,
+      "exact": 1.0
+    },
+    "docx": {
+      "n": 200,
+      "exact": 0.995
+    },
+    "pdf": {
+      "n": 217,
+      "exact": 0.9954
+    },
+    "scan": {
+      "n": 13,
+      "exact": 1.0
+    },
+    "txt": {
+      "n": 218,
+      "exact": 1.0
+    },
+    "xlsx": {
+      "n": 216,
+      "exact": 1.0
+    }
+  },
+  "confusion": {
+    "OK": {
+      "OK": 193
+    },
+    "NEEDS_REVIEW": {
+      "NEEDS_REVIEW": 120
+    },
+    "MISMATCH": {
+      "MISMATCH": 187
+    }
+  },
+  "latency_ms": {
+    "p50": 24.1,
+    "p95": 50.4
+  },
+  "formats_excluded": [],
+  "known_limits": [
+    "defect: 1 case(s) not exactly right",
+    "gross_weight_kg: tonne values with decimals (e.g. 16.1 MT vs 16,100 KG) can differ by float rounding (16.1 * 1000 = 16100.000000000002), a false alarm; fix = compare weights with a tolerance in sdoc/normalize.py"
+  ]
+}

@@ -1,92 +1,13 @@
-"""Synthetic stress tests: generate SI/BL documents in several formats and label vocabularies, then check the
+﻿"""Synthetic stress tests: generate SI/BL documents in several formats and label vocabularies, then check the
 properties the product promises: equivalent formatting never alarms, a single real change flags exactly that field,
 blank values escalate, wrong document types escalate."""
-import io
-
 import pytest
 
 from sdoc.config import FIELDS
 from sdoc.decide import decide
 from sdoc.normalize import norm_count, norm_party, norm_weight
 from sdoc.parse import read_document
-
-BASE = {
-    "shipper": "ACME TRADING PTE LIMITED\n1 MAIN ROAD; SINGAPORE 048624",
-    "consignee": "BUYER GMBH\nOPERNRING 3; 1010 VIENNA, AUSTRIA",
-    "notify_party": "NOTIFY LOGISTICS CO., LTD",
-    "port_of_loading": "SINGAPORE",
-    "port_of_discharge": "HAMBURG, GERMANY (DEHAM)",
-    "container_count": "6 x 40'HC",
-    "gross_weight_kg": "131,058 KG",
-}
-CHANGED = {
-    "shipper": "OTHER TRADING PTE LTD\n1 MAIN ROAD; SINGAPORE 048624",
-    "consignee": "DIFFERENT BUYER GMBH\nOPERNRING 3; 1010 VIENNA, AUSTRIA",
-    "notify_party": "ANOTHER NOTIFY LTD",
-    "port_of_loading": "PORT KLANG",
-    "port_of_discharge": "ROTTERDAM, NETHERLANDS",
-    "container_count": "7 x 40'HC",
-    "gross_weight_kg": "131,059 KG",
-}
-LABELS = {
-    "A": dict(zip(FIELDS, ["Shipper/Exporter", "To the Order of", "Notify", "Load Port", "Discharge Port",
-                           "Total Containers", "Gross Wt (kgs)"])),
-    "B": dict(zip(FIELDS, ["SHIPPER", "Consignee (Non-Negotiable)", "NOTIFY PARTY", "Port of Loading (POL)",
-                           "Port of Discharge (POD)", "No. of Containers or Packages", "GROSS WEIGHT"])),
-    "C": dict(zip(FIELDS, ["Shipper (Principal or Seller) (发货人)", "Consignee (收货人)", "Notify Party/Intermediate Consignee",
-                           "POL", "POD", "Container Count", "Gross Weight毛重(KGS)"])),
-}
-NOISE = [("Vessel", "MV TEST V.1"), ("NET WEIGHT", "1,000 KG"), ("Booking No.", "BK123"), ("HS CODE", "4802")]
-
-
-def build_txt(title, labels, values) -> bytes:
-    lines = [title, "=" * 40, ""]
-    for f in FIELDS:
-        first, *rest = values[f].split("\n")
-        lines.append(f"{labels[f]}: {first}")
-        lines += [f"  {r}" for r in rest]
-    lines += [f"{k}: {v}" for k, v in NOISE]
-    return "\n".join(lines).encode("utf-8")
-
-
-def build_docx(title, labels, values) -> bytes:
-    import docx
-
-    d = docx.Document()
-    d.add_paragraph(title)
-    t = d.add_table(rows=0, cols=2)
-    for f in FIELDS:
-        row = t.add_row().cells
-        row[0].text, row[1].text = labels[f], values[f]
-    for k, v in NOISE:
-        row = t.add_row().cells
-        row[0].text, row[1].text = k, v
-    buf = io.BytesIO()
-    d.save(buf)
-    return buf.getvalue()
-
-
-def build_xlsx(title, labels, values) -> bytes:
-    import openpyxl
-
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.append(["SOME COMPANY", None])
-    ws.append([title, "REF123"])
-    for f in FIELDS:
-        v = values[f]
-        if f == "gross_weight_kg" and v.replace(",", "").replace(" KG", "").isdigit():
-            v = int(v.replace(",", "").replace(" KG", ""))  # numeric cell, like the real files
-        ws.append([labels[f], v.replace("\n", " | ") if isinstance(v, str) else v])
-    for k, v in NOISE:
-        ws.append([k, v])
-    buf = io.BytesIO()
-    wb.save(buf)
-    return buf.getvalue()
-
-
-BUILDERS = {"txt": build_txt, "docx": build_docx, "xlsx": build_xlsx}
-FORMATS = list(BUILDERS)
+from sdoc.synth import BASE, BUILDERS, CHANGED, FORMATS, LABELS, build_txt  # noqa: F401
 
 
 def pair(fmt, si_labels="A", bl_labels="B", bl_values=None, bl_title="BILL OF LADING (DRAFT)"):
@@ -149,3 +70,4 @@ def test_unit_and_word_normalisation():
     assert norm_party("ACME LIMITED") == norm_party("Acme Ltd.")
     assert norm_party("Smith & Sons Company") == norm_party("SMITH AND SONS CO")
     assert norm_party("ACME TRADING") != norm_party("ACME TRADERS")
+
