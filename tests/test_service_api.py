@@ -230,3 +230,134 @@ def test_metrics_and_queue_use_light_reads(svc):
     m = svc.metrics()
     assert asked == [METRIC_COLUMNS] and m["review_queue"] == 2
     assert {q["subject"] for q in svc.review_queue()} == {"subj 3", "subj 4"}
+
+
+def test_simulated_scenarios_process_correctly_count_in_metrics_and_stay_out_of_the_scored_export(svc):
+    got = {s: svc.simulate_email(s) for s in ("mismatch", "clean", "invoice", "si_request")}
+    r = got["mismatch"]["result"]
+    assert (r["status"], sorted(r["defect_fields"])) == ("MISMATCH", ["consignee", "notify_party"])
+    assert got["clean"]["result"]["status"] == "OK" and got["clean"]["result"]["category"] == "BL_COMPARISON"
+    assert got["invoice"]["result"]["category"] == "INVOICE_QUERY"
+    assert got["si_request"]["result"]["category"] == "SI_REQUEST"
+    ids = [x["email"]["email_id"] for x in got.values()]
+    assert all(i.startswith("000_sim_") for i in ids)
+    assert svc.repo.list_emails(None, None, 50, 0)[0]["email_id"].startswith("000_sim_")  # listed first
+    assert set(svc.export_submission()) == {f"email_00{i}" for i in range(1, 6)}  # the default (scored) export is dataset-only
+    assert set(svc.export_submission(include_extra=True)) == {f"email_00{i}" for i in range(1, 6)} | set(ids)
+    m = svc.metrics()
+    assert m["total_emails"] == 9 and m["processed"] == 4 and m["bl_comparison_status"]["MISMATCH"] == 1  # demo mail is counted
+    assert svc.reset_simulated() == {"deleted": len(ids)} and not any(i in svc.repo.emails for i in ids)
+    assert svc.metrics()["total_emails"] == 5  # ...and clearing it is reflected
+
+
+def test_simulated_scanned_pair_is_unreadable_and_written_to_storage(svc):
+    out = svc.simulate_email("scanned")
+    assert out["result"]["review_reason"] == "unreadable"
+    assert all(name in svc.store.files and svc.store.files[name].startswith(b"%PDF") for name in out["email"]["attachments"])
+    svc.reset_simulated()
+    assert not [n for n in svc.store.files if n.startswith("sim/")]
+
+
+def test_simulate_endpoint_rejects_unknown_scenario_and_caps_volume(client, svc, monkeypatch):
+    assert client.post("/api/py/gmail/simulate", json={"scenario": "nope"}).status_code == 400
+    assert client.post("/api/py/gmail/simulate", json={"scenario": "invoice"}).json()["result"]["category"] == "INVOICE_QUERY"
+    monkeypatch.setattr("sdoc.service.MAX_SIMULATED", 1)
+    assert client.post("/api/py/gmail/simulate", json={"scenario": "invoice"}).status_code == 400
+    assert client.delete("/api/py/gmail/simulated").json() == {"deleted": 1}
+
+
+def test_csv_export_lists_mismatches_with_fields_and_explanation(client, svc):
+    svc.process("email_002")  # mismatch
+    svc.process("email_001")  # ok: not exported
+    svc.repo.results["email_002"]["explanation"] = "Consignee differs, line one\nline two"
+    r = client.get("/api/py/export/csv")
+    assert r.status_code == 200 and "attachment" in r.headers["content-disposition"]
+    import csv, io
+    rows = list(csv.DictReader(io.StringIO(r.text.lstrip("﻿"))))
+    assert [x["email_id"] for x in rows] == ["email_002"]
+    assert rows[0]["mismatched_fields"] == "consignee" and "SI=" in rows[0]["si_vs_bl_values"]
+    assert rows[0]["explanation"] == "Consignee differs, line one line two" and rows[0]["subject"] == "subj 2"
+
+
+def test_processed_daily_is_zero_filled_and_includes_simulated_mail(client, svc):
+    svc.process("email_001")
+    svc.simulate_email("invoice")
+    days = client.get("/api/py/metrics/daily?days=5").json()
+    assert len(days) == 5 and sum(d["count"] for d in days) == 2 and days[-1]["count"] == 2
+
+
+def test_email_list_preview_adds_a_short_snippet(client):
+    plain = client.get('/api/py/emails').json()[0]
+    assert 'snippet' not in plain
+    row = client.get('/api/py/emails?preview=true').json()[0]
+    assert row['snippet'].startswith('Attached are the SI') and len(row['snippet']) <= 110
+
+
+
+# -- Process page: PDF upload ---------------------------------------------------------------------------------------
+from sdoc.samples import sample_pdf, text_pdf  # noqa: E402
+
+
+def upload(client, files, roles=None):
+    parts = [("files", (name, data, "application/pdf")) for name, data in files]
+    return client.post("/api/py/upload", files=parts, data={"roles": roles or []})
+
+
+def test_upload_si_and_bl_pdfs_are_detected_compared_and_counted(client, svc):
+    r = upload(client, [("a.pdf", sample_pdf("si")), ("b.pdf", sample_pdf("bl"))])
+    assert r.status_code == 200
+    body = r.json()
+    assert {d["role"] for d in body["detected"]} == {"SI", "BL"}
+    res = body["result"]
+    assert (res["category"], res["status"], sorted(res["defect_fields"])) == ("BL_COMPARISON", "MISMATCH", ["consignee", "notify_party"])
+    assert body["email"]["email_id"].startswith("000_up_") and len(body["email"]["attachments"]) == 2
+    assert svc.metrics()["total_emails"] == 6 and svc.metrics()["bl_comparison_status"]["MISMATCH"] == 1  # reflected in metrics
+    assert body["email"]["email_id"] not in svc.export_submission()  # scorer export stays dataset-only
+    assert body["email"]["email_id"] in svc.export_submission(include_extra=True)
+    assert client.delete("/api/py/uploads").json() == {"deleted": 1} and svc.metrics()["total_emails"] == 5
+
+
+def test_upload_clean_pair_is_ok_and_email_export_supplies_sender_and_subject(client):
+    r = upload(client, [("mail.pdf", sample_pdf("email")), ("si.pdf", sample_pdf("si")), ("bl.pdf", sample_pdf("bl-clean"))]).json()
+    assert r["result"]["status"] == "OK" and r["result"]["category"] == "BL_COMPARISON"
+    assert r["email"]["sender"] == "documentation.sg@meridian-line.example" and r["email"]["subject"].startswith("DRAFT BL / SI VERIFICATION")
+    assert not r["email"]["body"].lower().startswith("from:")  # header lines are not part of the body
+
+
+def test_upload_single_document_needs_review_and_email_only_is_triaged(client):
+    r = upload(client, [("si.pdf", sample_pdf("si"))]).json()
+    assert (r["result"]["status"], r["result"]["review_reason"]) == ("NEEDS_REVIEW", "missing_attachment")
+    inv = text_pdf(["From: billing@x.example", "Subject: Invoice 88", "", "Please find our invoice for detention charges. Payment due."])
+    assert upload(client, [("inv.pdf", inv)]).json()["result"]["category"] == "INVOICE_QUERY"
+
+
+def test_upload_validation_errors_are_clear(client):
+    assert "not a PDF" in upload(client, [("x.pdf", b"hello")]).json()["detail"]
+    assert "one shipping instruction" in upload(client, [("a.pdf", sample_pdf("si")), ("b.pdf", sample_pdf("si"))]).json()["detail"].lower()
+    assert upload(client, []).status_code == 422
+    from PIL import Image
+    import io as _io
+    buf = _io.BytesIO(); Image.new("RGB", (200, 200), "white").save(buf, format="PDF")
+    scan = buf.getvalue()
+    assert "Choose its type" in upload(client, [("scan1.pdf", scan)]).json()["detail"]
+    # ...and picking the type fixes it (the scan is then read as an SI with the BL beside it)
+    ok = upload(client, [("scan1.pdf", scan), ("b.pdf", sample_pdf("bl"))], roles=["si", "auto"])
+    assert ok.status_code == 200 and {d["role"] for d in ok.json()["detected"]} == {"SI", "BL"}
+
+
+def test_sample_endpoint_serves_pdfs(client):
+    for kind in ("email", "si", "bl", "bl-clean"):
+        r = client.get(f"/api/py/samples/{kind}")
+        assert r.status_code == 200 and r.content.startswith(b"%PDF")
+    assert client.get("/api/py/samples/nope").status_code == 404
+
+
+def test_routes_endpoint_returns_ports_from_the_documents(client, svc):
+    svc.process('email_001')
+    svc.process('email_004')  # no attachments: no ports
+    rows = {r['email_id']: r for r in client.get('/api/py/metrics/routes').json()}
+    assert rows['email_001']['pol'] and rows['email_001']['pod'] and rows['email_001']['status'] == 'OK'
+    assert rows['email_004']['pol'] is None and rows['email_004']['subject'] == 'subj 4'
+
+
+    assert rows['email_004']['sender'] == 'a@x.com'

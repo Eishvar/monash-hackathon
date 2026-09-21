@@ -1,3 +1,4 @@
+import { Check, CircleAlert, TriangleAlert, X, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import {
   CATEGORY_LABEL,
@@ -9,18 +10,18 @@ import {
   type Status,
 } from "@/lib/api";
 
-const STATUS_STYLE: Record<Status, { cls: string; mark: string }> = {
-  OK: { cls: "bg-ok-bg text-ok", mark: "✓" },
-  MISMATCH: { cls: "bg-bad-bg text-bad", mark: "≠" },
-  NEEDS_REVIEW: { cls: "bg-warn-bg text-warn", mark: "!" },
-  ERROR: { cls: "bg-err-bg text-err", mark: "×" },
+const STATUS_STYLE: Record<Status, { cls: string; Icon: LucideIcon }> = {
+  OK: { cls: "border-ok/25 bg-ok-bg text-ok", Icon: Check },
+  MISMATCH: { cls: "border-bad/25 bg-bad-bg text-bad", Icon: X },
+  NEEDS_REVIEW: { cls: "border-warn/25 bg-warn-bg text-warn", Icon: TriangleAlert },
+  ERROR: { cls: "border-err/25 bg-err-bg text-err", Icon: CircleAlert },
 };
 
 export function StatusPill({ status }: { status: Status }) {
-  const s = STATUS_STYLE[status];
+  const { cls, Icon } = STATUS_STYLE[status];
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${s.cls}`}>
-      <span aria-hidden="true">{s.mark}</span>
+    <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium ${cls}`}>
+      <Icon className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden="true" />
       {STATUS_LABEL[status]}
     </span>
   );

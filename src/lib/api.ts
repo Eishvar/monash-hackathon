@@ -81,6 +81,7 @@ export interface EmailRow {
   sender: string | null;
   subject: string | null;
   attachments: string[];
+  snippet?: string; // only when requested with ?preview=true
   result: ResultSummary | null;
 }
 
@@ -143,6 +144,12 @@ export interface BatchResponse {
   seconds: number;
 }
 
+export interface UploadResponse {
+  email: Email;
+  result: Result;
+  detected: { filename: string; role: "email" | "SI" | "BL" }[];
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -155,7 +162,9 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`/api/py${path}`, { ...init, headers: { "Content-Type": "application/json" } });
+    // FormData sets its own multipart boundary header
+    const headers = init?.body instanceof FormData ? undefined : { "Content-Type": "application/json" };
+    res = await fetch(`/api/py${path}`, { ...init, headers });
   } catch {
     throw new ApiError(0, "Cannot reach the backend. Check your connection and try again.");
   }
@@ -173,6 +182,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const apiGet = <T>(path: string) => request<T>(path);
+export const apiUpload = <T>(path: string, form: FormData) => request<T>(path, { method: "POST", body: form });
+export const apiDelete = <T>(path: string) => request<T>(path, { method: "DELETE" });
 export const apiPost = <T>(path: string, body?: unknown) =>
   request<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
 

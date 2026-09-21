@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AppSidebar } from "@/components/AppSidebar";
-import { OperatorGuide } from "@/components/OperatorGuide";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
@@ -18,7 +17,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: { default: "Shippr", template: "%s · Shippr" },
   description: "AI-powered shipping document verification. Checks Shipping Instructions against draft Bills of Lading.",
-  icons: { icon: "/shippr-logo.svg" },
+  icons: { icon: "/shippr-logo.png" },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -30,7 +29,6 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             <AppSidebar />
             <main className="min-w-0 flex-1 px-6 py-6">{children}</main>
           </div>
-          <OperatorGuide />
         </TooltipProvider>
       </body>
     </html>

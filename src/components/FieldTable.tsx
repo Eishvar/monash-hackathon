@@ -1,8 +1,11 @@
+import { Check, TriangleAlert, X } from "lucide-react";
 import { FIELDS, FIELD_LABEL, type FieldRow } from "@/lib/api";
+
+const TAG = "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium";
 
 function Value({ v }: { v: string | null | undefined }) {
   if (v == null || v === "") return <span className="text-muted-foreground">—</span>;
-  return <span className="whitespace-pre-wrap break-words font-mono text-[13px] leading-5">{v.replace(/\s*\n\s*/g, "\n")}</span>;
+  return <span className="whitespace-pre-wrap break-words text-sm leading-5">{v.replace(/\s*\n\s*/g, "\n")}</span>;
 }
 
 /** The 7 fields, SI (reference) beside the draft BL. Differences are highlighted and never rely on colour alone. */
@@ -10,7 +13,7 @@ export function FieldTable({ rows, suggested = false }: { rows: FieldRow[]; sugg
   const byField = new Map(rows.map((r) => [r.field, r]));
   return (
     <div className="overflow-hidden rounded-lg border border-line" role="table" aria-label="SI versus BL field comparison">
-      <div role="row" className="hidden grid-cols-[11rem_1fr_1fr_10rem] gap-4 border-b border-line bg-surface-2 px-4 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground md:grid">
+      <div role="row" className="hidden grid-cols-[10rem_1fr_1fr_9rem] gap-4 border-b border-line bg-muted/30 px-4 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground md:grid">
         <span role="columnheader">Field</span>
         <span role="columnheader">Shipping instruction (reference)</span>
         <span role="columnheader">Draft bill of lading</span>
@@ -24,7 +27,7 @@ export function FieldTable({ rows, suggested = false }: { rows: FieldRow[]; sugg
           <div
             key={f}
             role="row"
-            className={`grid gap-x-4 gap-y-1 border-b border-line px-4 py-3 last:border-b-0 md:grid-cols-[11rem_1fr_1fr_10rem] ${
+            className={`grid gap-x-4 gap-y-1 border-b border-line px-4 py-4 last:border-b-0 md:grid-cols-[10rem_1fr_1fr_9rem] ${
               differs ? "bg-bad-bg/60" : r?.missing ? "bg-warn-bg/60" : ""
             }`}
           >
@@ -43,18 +46,21 @@ export function FieldTable({ rows, suggested = false }: { rows: FieldRow[]; sugg
               {!r ? (
                 <span className="text-muted-foreground">—</span>
               ) : r.missing ? (
-                <span className="font-semibold text-warn">! Missing value</span>
+                <span className={`${TAG} border-warn/25 bg-warn-bg text-warn`}><TriangleAlert className="h-3.5 w-3.5" />Missing</span>
               ) : r.match ? (
-                <span className="font-medium text-ok">✓ Match</span>
+                <span className={`${TAG} border-ok/25 bg-ok-bg text-ok`}><Check className="h-3.5 w-3.5" />Match</span>
               ) : (
-                <span className="font-semibold text-bad">
-                  ≠ Differs
+                <>
+                  <span className={`${TAG} border-bad/25 bg-bad-bg text-bad`}>
+                    <X className="h-3.5 w-3.5" />
+                    Differs
+                  </span>
                   {short && (
-                    <span className="mt-0.5 block font-mono text-xs font-normal">
+                    <span className="mt-1.5 block text-xs text-muted-foreground">
                       SI: {r.si} / BL: {r.bl}
                     </span>
                   )}
-                </span>
+                </>
               )}
             </div>
           </div>

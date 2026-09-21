@@ -7,6 +7,7 @@ export interface PortLocation {
 
 /** Keys are normalised upper-case names (letters/digits separated by single spaces). */
 export const PORT_COORDINATES: Record<string, PortLocation> = {
+  BUATAN: { name: "Buatan, Indonesia", coordinates: [101.85, 0.95] },
   CALLAO: { name: "Callao, Peru", coordinates: [-77.15, -12.05] },
   FREMANTLE: { name: "Fremantle, Australia", coordinates: [115.75, -32.05] },
   SAVANNAH: { name: "Savannah, USA", coordinates: [-81.09, 32.08] },

@@ -8,6 +8,8 @@ BUCKET = "attachments"
 
 class AttachmentStore(Protocol):
     def read(self, name: str) -> bytes: ...
+    def write(self, name: str, data: bytes, content_type: str) -> None: ...
+    def delete(self, names: list[str]) -> None: ...
 
 
 class LocalStore:
@@ -19,6 +21,12 @@ class LocalStore:
     def read(self, name: str) -> bytes:
         return (self.root / name).read_bytes()
 
+    def write(self, name: str, data: bytes, content_type: str) -> None:
+        raise NotImplementedError("the local bundle is read-only")
+
+    def delete(self, names: list[str]) -> None:
+        raise NotImplementedError("the local bundle is read-only")
+
     def emails(self) -> list[dict]:
         return [json.loads(p.read_text(encoding="utf-8")) for p in sorted((self.root / "inbox").glob("email_*.json"))]
 
@@ -29,6 +37,13 @@ class SupabaseStore:
 
     def read(self, name: str) -> bytes:
         return self.client.storage.from_(self.bucket).download(name)
+
+    def write(self, name: str, data: bytes, content_type: str) -> None:
+        self.client.storage.from_(self.bucket).upload(name, data, {"content-type": content_type, "upsert": "true"})
+
+    def delete(self, names: list[str]) -> None:
+        if names:
+            self.client.storage.from_(self.bucket).remove(names)
 
 
 class MemoryStore:
@@ -42,3 +57,10 @@ class MemoryStore:
             return self.files[name]
         except KeyError:
             raise FileNotFoundError(name) from None
+
+    def write(self, name: str, data: bytes, content_type: str) -> None:
+        self.files[name] = data
+
+    def delete(self, names: list[str]) -> None:
+        for n in names:
+            self.files.pop(n, None)

@@ -10,15 +10,21 @@ RESULT_COLUMNS = (
 PAGE = 1000
 
 
+def snippet(body: str | None, n: int = 110) -> str:
+    """First line-ish of an email body for list previews."""
+    return " ".join((body or "").split())[:n]
+
+
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
 class Repository(Protocol):
     def upsert_emails(self, emails: list[dict]) -> None: ...
+    def delete_emails(self, ids: list[str]) -> None: ...
     def get_email(self, email_id: str) -> dict | None: ...
     def list_email_ids(self, only_unprocessed: bool = False, limit: int | None = None, offset: int = 0) -> list[str]: ...
-    def list_emails(self, category: str | None, status: str | None, limit: int, offset: int) -> list[dict]: ...
+    def list_emails(self, category: str | None, status: str | None, limit: int, offset: int, preview: bool = False) -> list[dict]: ...
     def upsert_result(self, result: dict) -> None: ...
     def get_result(self, email_id: str) -> dict | None: ...
     def all_results(self, columns: str = "*") -> list[dict]: ...
@@ -73,6 +79,10 @@ class SupabaseRepo:
         for i in range(0, len(emails), 100):
             self.c.table("emails").upsert(emails[i : i + 100]).execute()
 
+    def delete_emails(self, ids: list[str]) -> None:
+        if ids:  # results and reviews go with them (on delete cascade)
+            self.c.table("emails").delete().in_("email_id", ids).execute()
+
     def get_email(self, email_id: str) -> dict | None:
         rows = self.c.table("emails").select("*").eq("email_id", email_id).limit(1).execute().data
         return rows[0] if rows else None
@@ -84,10 +94,10 @@ class SupabaseRepo:
             ids = [i for i in ids if i not in done]
         return ids[offset : offset + limit] if limit is not None else ids[offset:]
 
-    def list_emails(self, category: str | None, status: str | None, limit: int, offset: int) -> list[dict]:
+    def list_emails(self, category: str | None, status: str | None, limit: int, offset: int, preview: bool = False) -> list[dict]:
         cols = "category,status,review_reason,has_defect,defect_fields,decided_by,reviewed,processing_error"
         embed = "results!inner" if (category or status) else "results"
-        q = self.c.table("emails").select(f"email_id,sender,subject,attachments,{embed}({cols})")
+        q = self.c.table("emails").select(f"email_id,sender,subject,attachments{',body' if preview else ''},{embed}({cols})")
         if category:
             q = q.eq("results.category", category)
         if status:
@@ -97,6 +107,8 @@ class SupabaseRepo:
         for r in rows:
             res = r.pop("results", None)
             res = res[0] if isinstance(res, list) and res else (res or None)
+            if preview:
+                r["snippet"] = snippet(r.pop("body", None))
             out.append({**r, "result": res})
         return out
 
@@ -160,6 +172,12 @@ class MemoryRepo:
     def upsert_emails(self, emails):
         self.emails.update({e["email_id"]: dict(e) for e in emails})
 
+    def delete_emails(self, ids):
+        for i in ids:
+            self.emails.pop(i, None)
+            self.results.pop(i, None)
+        self.reviews = [r for r in self.reviews if r["email_id"] not in ids]
+
     def get_email(self, email_id):
         return self.emails.get(email_id)
 
@@ -167,7 +185,7 @@ class MemoryRepo:
         ids = sorted(i for i in self.emails if not (only_unprocessed and i in self.results))
         return ids[offset : offset + limit] if limit is not None else ids[offset:]
 
-    def list_emails(self, category, status, limit, offset):
+    def list_emails(self, category, status, limit, offset, preview=False):
         rows = []
         for i in sorted(self.emails):
             e, res = self.emails[i], self.results.get(i)
@@ -175,7 +193,8 @@ class MemoryRepo:
                 continue
             if category and res["category"] != category or status and res["status"] != status:
                 continue
-            rows.append({k: e[k] for k in ("email_id", "sender", "subject", "attachments")} | {"result": res})
+            row = {k: e[k] for k in ("email_id", "sender", "subject", "attachments")} | {"result": res}
+            rows.append(row | {"snippet": snippet(e.get("body"))} if preview else row)
         return rows[offset : offset + limit]
 
     def upsert_result(self, result):

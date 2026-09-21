@@ -2,10 +2,13 @@
 
 The API layer (api/index.py) only routes requests here. Everything is written against the `Repository` and
 `AttachmentStore` interfaces so it runs on Supabase in the cloud and on in-memory fakes in tests."""
+import csv
+import io
 import os
 import time
 import uuid
 from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
 
 from sdoc.classify import classify
 from sdoc.config import FIELDS, cache_dir, llm_enabled, resolve_model
@@ -15,6 +18,8 @@ from sdoc.llm import LLM, DiskCache, OpenAICompatLLM, RepoCache, TieredCache
 from sdoc.metrics import compute_metrics
 from sdoc.parse import Doc
 from sdoc.pipeline import Pipeline, Result
+from sdoc.ingest import UploadError, build_upload
+from sdoc.simulate import MAX_SIMULATED, MAX_UPLOADS, SCENARIOS, build_email, is_simulated, is_upload
 from sdoc.store import AttachmentStore, SupabaseStore
 
 DEFAULT_RECORD = {"category": "GENERAL", "status": "OK", "review_reason": None, "has_defect": False,
@@ -112,9 +117,50 @@ class Service:
             run["models"] = {t: f"{resolve_model(t).provider}/{resolve_model(t).model}" for t in ("classify", "vision")}
         self.repo.upsert_run(run)
 
+    # -- Gmail-view demo: simulated inbound mail ----------------------------------------------------------------
+    def simulate_email(self, scenario: str) -> dict:
+        """An inbound email arrives and is verified immediately (no click needed). Simulated rows stay out of the
+        scored export and the metrics; `reset_simulated` removes them."""
+        if scenario not in SCENARIOS:
+            raise BadRequest(f"unknown scenario {scenario!r}; choose one of {list(SCENARIOS)}")
+        if sum(map(is_simulated, self.repo.list_email_ids())) >= MAX_SIMULATED:
+            raise BadRequest("too many simulated emails: clear them first")
+        email, files = build_email(scenario)
+        for name, (data, content_type) in files.items():
+            self.store.write(name, data, content_type)
+        self.repo.upsert_emails([email])
+        return {"email": email, "result": self.process(email["email_id"])}
+
+    def _reset(self, is_mine) -> dict:
+        ids = [i for i in self.repo.list_email_ids() if is_mine(i)]
+        names = [a for i in ids for a in (self.repo.get_email(i) or {}).get("attachments", [])]
+        self.store.delete(names)
+        self.repo.delete_emails(ids)
+        return {"deleted": len(ids)}
+
+    def reset_simulated(self) -> dict:
+        return self._reset(is_simulated)
+
+    # -- Process page: manual PDF upload -----------------------------------------------------------------------------
+    def ingest_upload(self, files: list[tuple[str, bytes]], roles: list[str] | None = None) -> dict:
+        """PDFs (an exported email and/or SI / draft BL) become an email that is processed straight away."""
+        if sum(map(is_upload, self.repo.list_email_ids())) >= MAX_UPLOADS:
+            raise BadRequest("too many uploaded emails: remove them first")
+        try:
+            email, stored, detected = build_upload(files, roles)
+        except UploadError as exc:
+            raise BadRequest(str(exc)) from exc
+        for name, (data, content_type) in stored.items():
+            self.store.write(name, data, content_type)
+        self.repo.upsert_emails([email])
+        return {"email": email, "result": self.process(email["email_id"]), "detected": detected}
+
+    def reset_uploads(self) -> dict:
+        return self._reset(is_upload)
+
     # -- reading ---------------------------------------------------------------------------------------------
-    def list_emails(self, category=None, status=None, limit=50, offset=0) -> list[dict]:
-        return self.repo.list_emails(category, status, min(limit, 200), offset)
+    def list_emails(self, category=None, status=None, limit=50, offset=0, preview=False) -> list[dict]:
+        return self.repo.list_emails(category, status, min(limit, 200), offset, preview)
 
     def email_detail(self, email_id: str) -> dict:
         email = self.repo.get_email(email_id)
@@ -169,12 +215,64 @@ class Service:
         return self.repo.get_result(email_id)
 
     # -- outputs -----------------------------------------------------------------------------------------------
-    def export_submission(self) -> dict[str, dict]:
+    def export_submission(self, include_extra: bool = False) -> dict[str, dict]:
+        """The organiser's submission shape. By default dataset emails only (what the scorer expects); the UI's
+        download also includes simulated and uploaded emails."""
         results = {r["email_id"]: r for r in self.repo.all_results()}
-        return {i: to_record(results[i]) if i in results else dict(DEFAULT_RECORD) for i in self.repo.list_email_ids()}
+        ids = [i for i in self.repo.list_email_ids() if include_extra or not (is_simulated(i) or is_upload(i))]
+        return {i: to_record(results[i]) if i in results else dict(DEFAULT_RECORD) for i in ids}
+
+    def export_csv(self) -> str:
+        """Mismatches (and cases waiting for a human) as a spreadsheet: which emails, which fields, and why (the AI explanation)."""
+        rows = [r for r in self.repo.all_results()
+                if r["category"] == "BL_COMPARISON" and r["status"] in ("MISMATCH", "NEEDS_REVIEW", "ERROR")]
+        headers = self.repo.email_headers([r["email_id"] for r in rows])
+        out = io.StringIO()
+        w = csv.writer(out)
+        w.writerow(["email_id", "subject", "sender", "status", "review_reason", "mismatched_fields", "si_vs_bl_values", "explanation", "human_reviewed"])
+        for r in rows:
+            h = headers.get(r["email_id"], {})
+            by_field = {f["field"]: f for f in (r.get("fields") or r.get("provisional_fields") or [])}
+            diffs = "; ".join(f"{f}: SI={by_field[f]['si']} | BL={by_field[f]['bl']}" for f in r["defect_fields"] if f in by_field)
+            w.writerow([r["email_id"], h.get("subject") or "", h.get("sender") or "", r["status"], r.get("review_reason") or "",
+                        ", ".join(r["defect_fields"]), diffs.replace("\n", " "), (r.get("explanation") or "").replace("\n", " "),
+                        "yes" if r.get("reviewed") else "no"])
+        return out.getvalue()
+
+    def routes(self) -> list[dict]:
+        """One row per BL comparison with its port of loading / discharge as written in the documents (SI value, else BL).
+        Emails without document values (e.g. a request for a draft BL) have no ports; the UI falls back to the subject."""
+        rows = [r for r in self.repo.all_results("email_id,category,status,fields,provisional_fields") if r["category"] == "BL_COMPARISON"]
+        ids = [r["email_id"] for r in rows]
+        headers: dict[str, dict] = {}
+        for i in range(0, len(ids), 80):  # chunked: keeps the `in` filter's URL short
+            headers.update(self.repo.email_headers(ids[i : i + 80]))
+        out = []
+        for r in rows:
+            by = {f["field"]: f for f in (r.get("fields") or r.get("provisional_fields") or [])}
+
+            def port(key: str) -> str | None:
+                f = by.get(key)
+                v = ((f.get("si") or f.get("bl")) if f else None) or ""
+                return v.split("\n")[0].strip() or None
+
+            out.append({"email_id": r["email_id"], "status": r["status"], "subject": headers.get(r["email_id"], {}).get("subject"),
+                        "sender": headers.get(r["email_id"], {}).get("sender"), "pol": port("port_of_loading"), "pod": port("port_of_discharge")})
+        return out
+
+    def processed_daily(self, days: int = 14) -> list[dict]:
+        """Emails processed per UTC day for the last `days` days (zero-filled), from each result's last-processed time."""
+        counts: dict[str, int] = {}
+        for r in self.repo.all_results("email_id,updated_at"):
+            if r.get("updated_at"):
+                day = str(r["updated_at"])[:10]
+                counts[day] = counts.get(day, 0) + 1
+        today = datetime.now(timezone.utc).date()
+        span = [(today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
+        return [{"date": d, "count": counts.get(d, 0)} for d in span]
 
     def metrics(self) -> dict:
-        results = self.repo.all_results(METRIC_COLUMNS)  # light columns: this endpoint is hit on every page load
+        results = self.repo.all_results(METRIC_COLUMNS)  # light columns: hit on every page load
         records = {r["email_id"]: to_record(r) for r in results}
         run = self.repo.latest_run() or {}
         stats = run.get("stats") or {}

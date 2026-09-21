@@ -1,21 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import {
-  apiGet,
-  CATEGORIES,
-  CATEGORY_LABEL,
-  describeReview,
-  STATUSES,
-  STATUS_LABEL,
-  type Category,
-  type EmailRow,
-  type Metrics,
-} from "@/lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { ChevronDown, ChevronRight, FileJson, FileSpreadsheet } from "lucide-react";
+import { apiGet, CATEGORY_LABEL, type Category, type EmailRow, type Metrics, type Status } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { DecidedBy, ErrorBanner, FieldChip, Skeleton, StatusPill, buttonSecondary } from "@/components/ui";
+import { displayId, friendlySubject } from "@/lib/subject";
+import { ErrorBanner, FieldChip, Skeleton, StatusPill, buttonSecondary } from "@/components/ui";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const PAGE = 50;
@@ -45,10 +37,9 @@ function useEmails(query: string) {
   const loadMore = useCallback(async () => {
     if (!current) return;
     setBusy(true);
-    // Functional updates guarded by the key: if the filter changed while this request was in flight, drop the result
-    // instead of overwriting the newer query's rows with stale state (which left the list stuck on the skeleton).
     try {
       const more = await apiGet<EmailRow[]>(`/emails?${query}&limit=${PAGE}&offset=${current.rows.length}`);
+      // guarded by the key: a result for a filter the user has already left is dropped
       setState((s) => (s && s.key === query ? { ...s, rows: [...s.rows, ...more], done: more.length < PAGE } : s));
     } catch (e) {
       setState((s) => (s && s.key === query ? { ...s, error: (e as Error).message } : s));
@@ -60,20 +51,6 @@ function useEmails(query: string) {
   return { rows: current?.rows ?? [], loading: current === null, done: current?.done ?? true, error: current?.error ?? null, busy, loadMore };
 }
 
-function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      aria-pressed={active}
-      className={`cursor-pointer rounded-full border px-3 py-1 text-xs transition-colors ${
-        active ? "border-foreground bg-foreground text-background" : "border-border bg-transparent text-muted-foreground hover:bg-muted"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
 const CATEGORY_DOT: Record<Category, string> = {
   BL_COMPARISON: "bg-foreground",
   SI_REQUEST: "bg-ok",
@@ -82,37 +59,86 @@ const CATEGORY_DOT: Record<Category, string> = {
   SPAM: "bg-bad",
 };
 
-function Kpi({ label, value, hint, tone }: { label: string; value: React.ReactNode; hint?: string; tone?: "bad" | "warn" | "ok" }) {
-  const color = tone === "bad" ? "text-bad" : tone === "warn" ? "text-warn" : tone === "ok" ? "text-ok" : "text-foreground";
+const EXPORTS = [
+  { href: "/api/py/export/csv", download: "shippr-discrepancies.csv", title: "Discrepancy report (CSV)", desc: "Mismatched emails, the fields that differ, and the AI explanation", Icon: FileSpreadsheet },
+  { href: "/api/py/export/submission?include_extra=true", download: "submission.json", title: "All results (JSON)", desc: "Every email in the organiser's submission format", Icon: FileJson },
+];
+
+function ExportMenu() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, []);
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className={`mt-1 text-3xl font-semibold tabular-nums ${color}`}>{value}</div>
-      {hint && <div className="mt-0.5 text-xs text-muted-foreground">{hint}</div>}
+    <div className="relative" ref={ref}>
+      <button className={buttonSecondary} onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}>
+        Export
+        <ChevronDown className="h-4 w-4" aria-hidden="true" />
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 top-full z-30 mt-2 w-80 rounded-xl border border-border bg-card p-1 shadow-xl">
+          {EXPORTS.map(({ href, download, title, desc, Icon }) => (
+            <a key={href} href={href} download={download} role="menuitem" onClick={() => setOpen(false)} className="flex items-start gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-muted/60">
+              <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <span>
+                <span className="block text-sm font-medium">{title}</span>
+                <span className="block text-xs text-muted-foreground">{desc}</span>
+              </span>
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-const HEADS = ["Email ID", "Subject", "Sender", "Attachments", "Category", "Status", "By"];
+const TABS: { value: Status | ""; label: string }[] = [
+  { value: "", label: "All" },
+  { value: "OK", label: "OK" },
+  { value: "MISMATCH", label: "Mismatch" },
+  { value: "NEEDS_REVIEW", label: "Needs review" },
+  { value: "ERROR", label: "Error" },
+];
 
-function InboxContent() {
+/** Segmented status filter. Only BL comparisons carry a verdict, so a status filter also limits to BL comparisons. */
+function StatusTabs({ value, onChange, counts, total }: { value: Status | ""; onChange: (v: Status | "") => void; counts: Record<string, number> | null; total: number | null }) {
+  return (
+    <div role="tablist" aria-label="Filter by status" className="inline-flex items-center gap-0.5 rounded-lg bg-muted p-1">
+      {TABS.filter((t) => t.value !== "ERROR" || value === "ERROR" || (counts?.ERROR ?? 0) > 0).map((t) => {
+        const active = value === t.value;
+        const n = t.value === "" ? total : (counts?.[t.value] ?? 0);
+        return (
+          <button
+            key={t.label}
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(t.value)}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-sm transition-colors ${
+              active ? "border border-border bg-card font-medium text-foreground shadow-sm" : "border border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t.label}
+            {n !== null && <span className="text-xs tabular-nums text-muted-foreground">{n}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const HEAD = "px-3 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground";
+
+export default function Page() {
   const router = useRouter();
-  const params = useSearchParams();
-  const category = params.get("category") ?? "";
-  const status = params.get("status") ?? "";
-  const query = new URLSearchParams({ ...(category && { category }), ...(status && { status }) }).toString();
+  const [status, setStatus] = useState<Status | "">("");
+  const query = status ? `category=BL_COMPARISON&status=${status}` : "";
   const { rows, loading, done, error, busy, loadMore } = useEmails(query);
   const { data: m, error: metricsError } = useApi<Metrics>("/metrics");
-
-  const setFilter = (key: "category" | "status", value: string) => {
-    const next = new URLSearchParams(params.toString());
-    if (value && next.get(key) !== value) next.set(key, value);
-    else next.delete(key);
-    router.replace(next.size ? `/?${next}` : "/");
-  };
-
-  const mismatches = m?.bl_comparison_status?.MISMATCH ?? 0;
-  const needsReview = m?.bl_comparison_status?.NEEDS_REVIEW ?? 0;
 
   return (
     <>
@@ -121,125 +147,82 @@ function InboxContent() {
           <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
           <p className="mt-1 text-sm text-muted-foreground">SI vs draft BL verification — every email is triaged and checked field by field.</p>
         </div>
-        <button className={buttonSecondary} disabled title="Export arrives with the backend export step">
-          Export ▾
-        </button>
+        <ExportMenu />
       </div>
       {(error || metricsError) && <div className="mb-4"><ErrorBanner message={error ?? metricsError ?? ""} /></div>}
 
-      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi label="Processed" value={m ? `${m.processed}/${m.total_emails}` : "–"} hint={m && m.unprocessed ? `${m.unprocessed} waiting` : "inbox up to date"} />
-        <Kpi label="Mismatches" value={m ? mismatches : "–"} tone={mismatches ? "bad" : undefined} hint="BL ≠ SI" />
-        <Kpi label="Needs Review" value={m ? needsReview : "–"} tone={needsReview ? "warn" : undefined} hint={m ? `${m.review_queue} in queue` : undefined} />
-        <Kpi label="AI-Assisted" value={m?.rule_share != null ? `${Math.round((1 - m.rule_share) * 100)}%` : "–"} hint="semantic extraction & classification" />
-      </div>
-
-      <div className="mb-4 space-y-2">
-        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter by category">
-          <span className="w-20 shrink-0 text-xs uppercase tracking-wider text-muted-foreground">Category</span>
-          {CATEGORIES.map((c) => (
-            <Chip key={c} active={category === c} onClick={() => setFilter("category", c)}>
-              {CATEGORY_LABEL[c]}
-            </Chip>
-          ))}
-        </div>
-        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter by status">
-          <span className="w-20 shrink-0 text-xs uppercase tracking-wider text-muted-foreground">Status</span>
-          {STATUSES.map((s) => (
-            <Chip key={s} active={status === s} onClick={() => setFilter("status", s)}>
-              {STATUS_LABEL[s]}
-            </Chip>
-          ))}
-        </div>
+      <div className="mb-3">
+        <StatusTabs value={status} onChange={setStatus} counts={m?.bl_comparison_status ?? null} total={m ? m.total_emails : null} />
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <Table>
+        <Table className="table-fixed">
           <TableHeader>
             <TableRow className="border-b border-border bg-muted/30 hover:bg-muted/30">
-              <TableHead className="w-10 px-4 py-3">
-                <input type="checkbox" aria-hidden="true" tabIndex={-1} readOnly className="cursor-default opacity-50" />
-              </TableHead>
-              {HEADS.map((h) => (
-                <TableHead key={h} className="px-3 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  {h}
-                </TableHead>
-              ))}
-              <TableHead className="w-8 px-4 py-3" />
+              <TableHead className={`${HEAD} w-[11%]`}>Email</TableHead>
+              <TableHead className={`${HEAD} w-[29%]`}>Subject</TableHead>
+              <TableHead className={`${HEAD} w-[17%]`}>Sender</TableHead>
+              <TableHead className={`${HEAD} w-[18%]`}>Category</TableHead>
+              <TableHead className={`${HEAD} w-[19%]`}>Status</TableHead>
+              <TableHead className={`${HEAD} w-[6%]`} />
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               Array.from({ length: 6 }, (_, i) => (
                 <TableRow key={i}>
-                  <TableCell colSpan={9} className="px-4 py-2">
+                  <TableCell colSpan={6} className="px-3 py-2">
                     <Skeleton className="h-12 w-full" />
                   </TableCell>
                 </TableRow>
               ))
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="p-8 text-center text-sm text-muted-foreground">
-                  {category || status ? "No emails match these filters." : "Nothing here yet. Open Process to run the inbox."}
+                <TableCell colSpan={6} className="p-8 text-center text-sm text-muted-foreground">
+                  {status ? "No emails with this status." : "Nothing here yet. Open Process to run the inbox."}
                 </TableCell>
               </TableRow>
             ) : (
-              rows.map((e) => (
-                <TableRow key={e.email_id} onClick={() => router.push(`/emails/${e.email_id}`)} className="cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-muted/40">
-                  <TableCell className="px-3 py-3" onClick={(ev) => ev.stopPropagation()}>
-                    <input type="checkbox" aria-hidden="true" tabIndex={-1} readOnly className="cursor-default opacity-50" />
-                  </TableCell>
-                  <TableCell className="px-3 py-3">
-                    <span className="font-mono text-xs text-muted-foreground">{e.email_id}</span>
-                  </TableCell>
-                  <TableCell className="px-3 py-3">
-                    <Link href={`/emails/${e.email_id}`} onClick={(ev) => ev.stopPropagation()} className="block max-w-[260px] truncate text-sm font-medium hover:underline">
-                      {e.subject || "(no subject)"}
-                    </Link>
-                    {e.result && e.result.defect_fields.length > 0 && (
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {e.result.defect_fields.map((f) => (
-                          <FieldChip key={f} field={f} />
-                        ))}
-                      </div>
-                    )}
-                  </TableCell>
-                  <TableCell className="px-3 py-3">
-                    <span className="block max-w-[150px] truncate text-sm text-muted-foreground">{e.sender ?? "—"}</span>
-                  </TableCell>
-                  <TableCell className="px-3 py-3">
-                    <span className="text-xs text-muted-foreground">{e.attachments.length > 0 ? `${e.attachments.length} files` : "—"}</span>
-                  </TableCell>
-                  <TableCell className="px-3 py-3">
-                    {e.result?.category ? (
-                      <div className="flex items-center gap-2">
-                        <span className={`h-2 w-2 shrink-0 rounded-full ${CATEGORY_DOT[e.result.category]}`} />
-                        <span className="text-sm text-muted-foreground">{CATEGORY_LABEL[e.result.category]}</span>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">Unclassified</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="px-3 py-3">
-                    {!e.result ? (
-                      <span className="text-xs text-muted-foreground">Not processed</span>
-                    ) : e.result.category === "BL_COMPARISON" ? (
-                      <>
-                        <StatusPill status={e.result.status} />
-                        {e.result.status !== "OK" && e.result.status !== "MISMATCH" && <div className="mt-1 max-w-[200px] text-xs text-warn">{describeReview(e.result)}</div>}
-                      </>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="px-3 py-3">{e.result && <DecidedBy result={e.result} />}</TableCell>
-                  <TableCell className="px-3 py-3">
-                    <svg className="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </TableCell>
-                </TableRow>
-              ))
+              rows.map((e) => {
+                const { title, detail } = friendlySubject(e.subject, e.result?.category);
+                return (
+                  <TableRow key={e.email_id} onClick={() => router.push(`/emails/${e.email_id}`)} className="cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-muted/40">
+                    <TableCell className="px-3 py-3 text-sm tabular-nums text-muted-foreground">{displayId(e.email_id)}</TableCell>
+                    <TableCell className="px-3 py-3">
+                      <Link href={`/emails/${e.email_id}`} onClick={(ev) => ev.stopPropagation()} className="block truncate text-sm font-medium hover:underline">
+                        {title}
+                      </Link>
+                      {detail && <div className="truncate text-xs text-muted-foreground">{detail}</div>}
+                      {e.result && e.result.defect_fields.length > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {e.result.defect_fields.map((f) => (
+                            <FieldChip key={f} field={f} />
+                          ))}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="px-3 py-3">
+                      <span className="block truncate text-sm text-muted-foreground">{e.sender ?? "—"}</span>
+                    </TableCell>
+                    <TableCell className="px-3 py-3">
+                      {e.result ? (
+                        <div className="flex items-center gap-2">
+                          <span className={`h-2 w-2 shrink-0 rounded-full ${CATEGORY_DOT[e.result.category]}`} />
+                          <span className="truncate text-sm text-muted-foreground">{CATEGORY_LABEL[e.result.category]}</span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Not processed</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="px-3 py-3">
+                      {e.result?.category === "BL_COMPARISON" ? <StatusPill status={e.result.status} /> : <span className="text-xs text-muted-foreground">—</span>}
+                    </TableCell>
+                    <TableCell className="px-3 py-3">
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
@@ -254,13 +237,5 @@ function InboxContent() {
       )}
       {!loading && rows.length > 0 && <p className="mt-3 text-center text-xs text-muted-foreground">{rows.length} shown</p>}
     </>
-  );
-}
-
-export default function Page() {
-  return (
-    <Suspense fallback={<Skeleton className="h-64 w-full" />}>
-      <InboxContent />
-    </Suspense>
   );
 }

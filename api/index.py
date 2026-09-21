@@ -6,9 +6,11 @@ All routes live under /api/py so Next.js can proxy them in dev (see next.config.
 import os
 from functools import lru_cache
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 
+from sdoc.ingest import MAX_TOTAL_BYTES
+from sdoc.samples import SAMPLES, sample_pdf
 from sdoc.service import BadRequest, NotFound, Service, build_service
 
 app = FastAPI(title="SDOC Verifier API", docs_url="/api/py/docs", openapi_url="/api/py/openapi.json")
@@ -39,6 +41,10 @@ class ReviewRequest(BaseModel):
     note: str | None = Field(default=None, max_length=500)
 
 
+class SimulateRequest(BaseModel):
+    scenario: str = Field(max_length=30)
+
+
 def _call(fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs)
@@ -51,14 +57,15 @@ def _call(fn, *args, **kwargs):
 @app.get("/api/py/health")
 def health() -> dict:
     # Which settings are present (booleans only, never values): makes a misconfigured deployment self-diagnosing.
-    names = ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY")
+    names = ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "OPENROUTER_API_KEY")
     return {"status": "ok", "configured": {n: bool(os.getenv(n)) for n in names}, "vercel_env": os.getenv("VERCEL_ENV")}
 
 
 @app.get("/api/py/emails")
 def list_emails(category: str | None = Query(None, pattern="^[A-Z_]{1,20}$"), status: str | None = Query(None, pattern="^[A-Z_]{1,20}$"),
-                limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0), svc: Service = Depends(get_service)):
-    return svc.list_emails(category, status, limit, offset)
+                limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0), preview: bool = False,
+                svc: Service = Depends(get_service)):
+    return svc.list_emails(category, status, limit, offset, preview)
 
 
 @app.get("/api/py/emails/{email_id}")
@@ -87,8 +94,54 @@ def review(email_id: str, req: ReviewRequest, svc: Service = Depends(get_service
 
 
 @app.get("/api/py/export/submission")
-def export_submission(svc: Service = Depends(get_service)):
-    return svc.export_submission()
+def export_submission(include_extra: bool = False, svc: Service = Depends(get_service)):
+    return svc.export_submission(include_extra)
+
+
+@app.post("/api/py/gmail/simulate")
+def simulate_email(req: SimulateRequest, svc: Service = Depends(get_service)):
+    return _call(svc.simulate_email, req.scenario)
+
+
+@app.delete("/api/py/gmail/simulated")
+def reset_simulated(svc: Service = Depends(get_service)):
+    return svc.reset_simulated()
+
+
+@app.post("/api/py/upload")
+def upload(files: list[UploadFile] = File(...), roles: list[str] = Form(default=[]), svc: Service = Depends(get_service)):
+    """Multipart upload of PDFs (an exported email and/or SI / draft BL). Stores them, creates the email, processes it."""
+    blobs = [(f.filename or "upload.pdf", f.file.read(MAX_TOTAL_BYTES + 1)) for f in files[:8]]
+    return _call(svc.ingest_upload, blobs, roles)
+
+
+@app.delete("/api/py/uploads")
+def reset_uploads(svc: Service = Depends(get_service)):
+    return svc.reset_uploads()
+
+
+@app.get("/api/py/samples/{kind}")
+def sample(kind: str):
+    if kind not in SAMPLES:
+        raise HTTPException(404, f"unknown sample {kind!r}")
+    return Response(sample_pdf(kind), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{SAMPLES[kind]}"'})
+
+
+@app.get("/api/py/export/csv")
+def export_csv(svc: Service = Depends(get_service)):
+    # utf-8 BOM so Excel opens it with the right encoding
+    return Response("\ufeff" + svc.export_csv(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="shippr-discrepancies.csv"'})
+
+
+@app.get("/api/py/metrics/routes")
+def metrics_routes(svc: Service = Depends(get_service)):
+    return svc.routes()
+
+
+@app.get("/api/py/metrics/daily")
+def metrics_daily(days: int = Query(14, ge=1, le=60), svc: Service = Depends(get_service)):
+    return svc.processed_daily(days)
 
 
 @app.get("/api/py/metrics")

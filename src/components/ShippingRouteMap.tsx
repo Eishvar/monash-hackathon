@@ -1,109 +1,109 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { apiGet, FIELD_LABEL, type EmailRow, type FieldName } from "@/lib/api";
-import { PORT_COORDINATES, project, resolvePort, type PortLocation } from "@/lib/ports";
-import { ErrorBanner, Skeleton } from "@/components/ui";
+import { ChevronDown, X } from "lucide-react";
+import { useApi } from "@/lib/useApi";
+import type { Status } from "@/lib/api";
+import { project, resolvePort, type PortLocation } from "@/lib/ports";
+import { friendlySubject } from "@/lib/subject";
+import { ErrorBanner, Skeleton, StatusPill } from "@/components/ui";
 
-const PAGE = 200; // API maximum per request
 const VIEWBOX = "97.32 0.84 826.85 503.39";
-const HUB = PORT_COORDINATES.SINGAPORE; // the API list omits the loading port, so the origin hub is an assumption (labelled as such)
+const NO_RING = "outline-none focus:outline-none focus-visible:outline-none";
+
+interface RouteRow {
+  email_id: string;
+  status: string;
+  subject: string | null;
+  sender?: string | null;
+  pol: string | null;
+  pod: string | null;
+}
 
 interface Lane {
-  port: PortLocation;
+  key: string;
+  label: string;
+  note: string | null;
+  from: PortLocation | null;
+  to: PortLocation | null;
   total: number;
-  ok: number;
   mismatch: number;
   review: number;
-  fields: Partial<Record<FieldName, number>>;
+  emails: RouteRow[];
 }
 
-function useBlEmails() {
-  const [state, setState] = useState<{ rows: EmailRow[] | null; error: string | null }>({ rows: null, error: null });
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const all: EmailRow[] = [];
-      for (let offset = 0; ; offset += PAGE) {
-        const page = await apiGet<EmailRow[]>(`/emails?category=BL_COMPARISON&limit=${PAGE}&offset=${offset}`);
-        all.push(...page);
-        if (page.length < PAGE) break;
-      }
-      return all;
-    })()
-      .then((rows) => !cancelled && setState({ rows, error: null }))
-      .catch((e: Error) => !cancelled && setState({ rows: null, error: e.message }));
-    return () => {
-      cancelled = true;
-    };
-  }, [tick]);
-  return { ...state, reload: () => setTick((t) => t + 1) };
-}
+const city = (s: string) => s.split(",")[0].trim();
+const title = (s: string) => s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 
-function buildLanes(rows: EmailRow[]) {
+/**
+ * Lanes come from the ports written in each SI / draft BL (port of loading → port of discharge).
+ * Emails without document values fall back to the destination named in the subject. A lane with only one known port is
+ * still listed and shown as a highlighted point on the map; emails with no port at all are grouped as "Ports not stated".
+ */
+function buildLanes(rows: RouteRow[]): Lane[] {
   const lanes = new Map<string, Lane>();
-  let unmapped = 0;
-  for (const e of rows) {
-    const port = resolvePort(e.subject);
-    if (!port) {
-      unmapped++;
-      continue;
-    }
-    const lane = lanes.get(port.name) ?? { port, total: 0, ok: 0, mismatch: 0, review: 0, fields: {} };
+  for (const r of rows) {
+    const from = resolvePort(r.pol);
+    const to = resolvePort(r.pod) ?? (r.pod ? null : resolvePort(r.subject));
+    const fromName = from ? city(from.name) : r.pol ? title(city(r.pol)) : null;
+    const toName = to ? city(to.name) : r.pod ? title(city(r.pod)) : null;
+    let key: string, label: string, note: string | null;
+    if (fromName && toName) [key, label, note] = [`${fromName}>${toName}`, `${fromName} → ${toName}`, null];
+    else if (toName) [key, label, note] = [`>${toName}`, toName, "Departure port not stated"];
+    else if (fromName) [key, label, note] = [`${fromName}>`, fromName, "Arrival port not stated"];
+    else [key, label, note] = ["none", "Ports not stated", "No port found in the documents"];
+    const lane = lanes.get(key) ?? { key, label, note, from, to, total: 0, mismatch: 0, review: 0, emails: [] };
     lane.total++;
-    const s = e.result?.status;
-    if (s === "MISMATCH") lane.mismatch++;
-    else if (s === "NEEDS_REVIEW" || s === "ERROR") lane.review++;
-    else if (s === "OK") lane.ok++;
-    for (const f of e.result?.defect_fields ?? []) lane.fields[f] = (lane.fields[f] ?? 0) + 1;
-    lanes.set(port.name, lane);
+    lane.emails.push(r);
+    if (r.status === "MISMATCH") lane.mismatch++;
+    else if (r.status === "NEEDS_REVIEW" || r.status === "ERROR") lane.review++;
+    lanes.set(key, lane);
   }
-  return { lanes: [...lanes.values()].sort((a, b) => b.mismatch - a.mismatch || b.total - a.total), unmapped };
+  return [...lanes.values()].sort((a, b) => b.mismatch - a.mismatch || b.total - a.total);
 }
 
 const tone = (l: Lane) => (l.mismatch > 0 ? "bad" : l.review > 0 ? "warn" : "ok");
 const STROKE = { bad: "stroke-bad", warn: "stroke-warn", ok: "stroke-ok" } as const;
 const DOT = { bad: "bg-bad", warn: "bg-warn", ok: "bg-ok" } as const;
-const RING = { bad: "stroke-bad", warn: "stroke-warn", ok: "stroke-ok" } as const;
 
-export function ProgressRing({ value, max, color }: { value: number; max: number; color: string }) {
-  const radius = 18;
-  const circ = 2 * Math.PI * radius;
-  const pct = max > 0 ? (value / max) * circ : 0;
-  return (
-    <svg className="h-10 w-10 -rotate-90" viewBox="0 0 40 40" aria-hidden="true">
-      <circle cx="20" cy="20" r={radius} className="fill-none stroke-muted" strokeWidth="3" />
-      <circle cx="20" cy="20" r={radius} className={`fill-none ${color} transition-all duration-500`} strokeWidth="3" strokeDasharray={circ} strokeDashoffset={circ - pct} strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function describe(l: Lane) {
-  const top = Object.entries(l.fields)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([f, n]) => `${FIELD_LABEL[f as FieldName]} (${n})`)
-    .join(", ");
-  return `${l.total} shipment${l.total === 1 ? "" : "s"} · ${l.mismatch} mismatch${l.mismatch === 1 ? "" : "es"} · ${l.review} in review${top ? ` · ${top}` : ""}`;
-}
+const summary = (l: Lane) => `${l.total} shipment${l.total === 1 ? "" : "s"} · ${l.mismatch} mismatch${l.mismatch === 1 ? "" : "es"}${l.review ? ` · ${l.review} in review` : ""}`;
 
 export function ShippingRouteMap() {
-  const { rows, error, reload } = useBlEmails();
+  const { data: rows, error, reload } = useApi<RouteRow[]>("/metrics/routes");
   const [selected, setSelected] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(true);
   const [q, setQ] = useState("");
 
-  const { lanes, unmapped } = useMemo(() => (rows ? buildLanes(rows) : { lanes: [], unmapped: 0 }), [rows]);
-  const active = selected ?? hovered;
-  const activeLane = lanes.find((l) => l.port.name === active) ?? null;
-  const shown = lanes.filter((l) => l.port.name.toLowerCase().includes(q.trim().toLowerCase()));
-  const [hx, hy] = project(...HUB.coordinates);
+  // Keep the map in step with new / removed emails while the page stays open.
+  useEffect(() => {
+    const t = setInterval(reload, 20000);
+    return () => clearInterval(t);
+  }, [reload]);
 
-  if (error) return <ErrorBanner message={error} onRetry={reload} />;
+  const lanes = useMemo(() => (rows ? buildLanes(rows) : []), [rows]);
+  const selectedLane = lanes.find((l) => l.key === selected) ?? null;
+  const active = selected ?? hovered;
+  const activeLane = lanes.find((l) => l.key === active) ?? null;
+  const shown = lanes.filter((l) => l.label.toLowerCase().includes(q.trim().toLowerCase()));
+
+  if (error && !rows) return <ErrorBanner message={error} onRetry={reload} />;
   if (!rows) return <Skeleton className="h-[420px] w-full" />;
 
-  const toggle = (name: string) => setSelected((s) => (s === name ? null : name));
+  const select = (key: string) => {
+    setSelected((s) => (s === key ? null : key));
+    setExpanded(true);
+  };
+  const clear = () => {
+    setSelected(null);
+    setHovered(null);
+  };
+  const hit = (key: string) => ({
+    onClick: () => select(key),
+    onMouseEnter: () => setHovered(key),
+    onMouseLeave: () => setHovered(null),
+  });
 
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
@@ -112,105 +112,125 @@ export function ShippingRouteMap() {
         <img src="/worldLow-pixels.svg" alt="" className="absolute inset-0 h-full w-full opacity-30" />
         <svg viewBox={VIEWBOX} className="absolute inset-0 h-full w-full" role="group" aria-label="Shipping lanes map">
           {lanes.map((l) => {
-            const [x, y] = project(...l.port.coordinates);
             const t = tone(l);
-            const dim = active !== null && active !== l.port.name;
-            const isHub = l.port.name === HUB.name;
-            const d = `M ${hx} ${hy} Q ${(hx + x) / 2} ${Math.min(hy, y) - Math.abs(x - hx) * 0.15} ${x} ${y}`;
+            const dim = active !== null && active !== l.key;
+            const isActive = active === l.key;
+            const a = l.from ? project(...l.from.coordinates) : null;
+            const b = l.to ? project(...l.to.coordinates) : null;
+            const arc = a && b && (a[0] !== b[0] || a[1] !== b[1]) ? `M ${a[0]} ${a[1]} Q ${(a[0] + b[0]) / 2} ${Math.min(a[1], b[1]) - Math.abs(b[0] - a[0]) * 0.15} ${b[0]} ${b[1]}` : null;
+            const points = [a, b].filter((p): p is [number, number] => !!p);
+            const single = points.length === 1;
             return (
-              <g key={l.port.name} className={`transition-opacity duration-300 ${dim ? "opacity-25" : ""}`}>
-                {!isHub && (
+              <g key={l.key} className={`transition-opacity duration-300 ${dim ? "opacity-25" : ""}`}>
+                {arc && (
                   <>
-                    <path d={d} className={`fill-none ${STROKE[t]} transition-all duration-300`} strokeWidth={active === l.port.name ? 3.5 : 2} strokeLinecap="round" />
+                    <path d={arc} className={`fill-none ${STROKE[t]} transition-all duration-300`} strokeWidth={isActive ? 3.5 : 2} strokeLinecap="round" />
                     <path
-                      d={d}
-                      className="cursor-pointer fill-none stroke-transparent"
+                      d={arc}
+                      className={`cursor-pointer fill-none stroke-transparent ${NO_RING}`}
                       strokeWidth="14"
                       role="button"
                       tabIndex={0}
-                      aria-label={`${l.port.name}: ${describe(l)}`}
-                      onClick={() => toggle(l.port.name)}
-                      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && toggle(l.port.name)}
-                      onMouseEnter={() => setHovered(l.port.name)}
-                      onMouseLeave={() => setHovered(null)}
+                      aria-label={`${l.label}: ${summary(l)}`}
+                      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && select(l.key)}
+                      {...hit(l.key)}
                     />
                   </>
                 )}
-                <circle cx={x} cy={y} r="3.5" className="pointer-events-none fill-white drop-shadow-[0_0_6px_rgba(255,255,255,0.9)]" />
-                <circle
-                  cx={x}
-                  cy={y}
-                  r="10"
-                  className="cursor-pointer fill-transparent"
-                  onClick={() => toggle(l.port.name)}
-                  onMouseEnter={() => setHovered(l.port.name)}
-                  onMouseLeave={() => setHovered(null)}
-                />
+                {points.map(([x, y], i) => (
+                  <g key={i}>
+                    {single && <circle cx={x} cy={y} r="8" className={`pointer-events-none fill-none ${STROKE[t]}`} strokeWidth="2" />}
+                    <circle cx={x} cy={y} r={single ? 4.5 : 3.5} className="pointer-events-none fill-white drop-shadow-[0_0_6px_rgba(255,255,255,0.9)]" />
+                    <circle cx={x} cy={y} r="10" className={`cursor-pointer fill-transparent ${NO_RING}`} {...hit(l.key)} />
+                  </g>
+                ))}
               </g>
             );
           })}
-          <circle cx={hx} cy={hy} r="5" className="pointer-events-none fill-white drop-shadow-[0_0_8px_rgba(255,255,255,1)]" />
         </svg>
 
-        <div className="pointer-events-none absolute left-3 top-3 space-y-1 rounded-md border border-border bg-black/70 px-3 py-2 text-xs text-white/80">
-          <div className="font-medium text-white">Route intelligence</div>
-          <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-ok" />OK</span>
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-bad" />Mismatch</span>
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-warn" />Review</span>
-          </div>
-          <div className="text-white/50">Origin hub (assumed): {HUB.name}</div>
-        </div>
-
         {activeLane && (
-          <div className="pointer-events-none absolute bottom-3 left-3 max-w-sm rounded-md border border-border bg-black/80 px-3 py-2 text-xs text-white">
-            <div className="font-semibold">{activeLane.port.name}</div>
-            <div className="mt-0.5 text-white/70">{describe(activeLane)}</div>
+          <div className={`absolute right-3 top-3 max-w-xs rounded-md border border-border bg-black/85 py-2 pl-3 text-xs text-white ${selected ? "pr-8" : "pointer-events-none pr-3"}`}>
+            {selected && (
+              <button onClick={clear} aria-label="Close route details" className="absolute right-1.5 top-1.5 rounded p-0.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+            <div className="text-sm font-semibold">{activeLane.label}</div>
+            <div className="mt-0.5 text-white/70">{summary(activeLane)}</div>
+            {activeLane.note && <div className="mt-0.5 text-white/50">{activeLane.note}</div>}
           </div>
         )}
       </div>
 
       <div className="flex max-h-[520px] flex-col rounded-xl border border-border bg-card">
         <div className="border-b border-border p-3">
-          <h2 className="text-sm font-semibold">Route lanes</h2>
-          <p className="mb-2 text-xs text-muted-foreground">Destinations read from email subjects, from {HUB.name} (assumed hub).</p>
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search lane (port)"
-            aria-label="Search lanes by port"
-            className="w-full rounded-md border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none focus:border-ring"
-          />
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold">Route lanes</h2>
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-ok" />OK</span>
+              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-bad" />Mismatch</span>
+              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-warn" />Review</span>
+            </div>
+          </div>
+          {!selectedLane && (
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search lane (port)"
+              aria-label="Search lanes by port"
+              className="mt-3 w-full rounded-md border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none focus:border-ring"
+            />
+          )}
         </div>
-        <ul className="flex-1 divide-y divide-border overflow-y-auto">
-          {shown.length === 0 && <li className="p-4 text-center text-sm text-muted-foreground">No lanes match.</li>}
-          {shown.map((l) => {
-            const t = tone(l);
-            return (
-              <li key={l.port.name}>
+
+        {selectedLane ? (
+          <div className="flex-1 overflow-y-auto">
+            <button onClick={() => setExpanded((e) => !e)} aria-expanded={expanded} className="flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-muted/40">
+              <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[tone(selectedLane)]}`} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">{selectedLane.label}</span>
+                <span className="block truncate text-xs text-muted-foreground">{summary(selectedLane)}{selectedLane.note ? ` · ${selectedLane.note}` : ""}</span>
+              </span>
+              <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} aria-hidden="true" />
+            </button>
+            {expanded && (
+              <ul className="divide-y divide-border border-t border-border">
+                {selectedLane.emails.map((e) => (
+                  <li key={e.email_id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                    <div className="min-w-0">
+                      <Link href={`/emails/${e.email_id}`} className="block truncate text-sm font-medium hover:underline">
+                        {friendlySubject(e.subject, "BL_COMPARISON").title}
+                      </Link>
+                      <div className="truncate text-xs text-muted-foreground">{e.sender ?? "Unknown sender"}</div>
+                    </div>
+                    <StatusPill status={e.status as Status} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : (
+          <ul className="flex-1 divide-y divide-border overflow-y-auto">
+            {shown.length === 0 && <li className="p-4 text-center text-sm text-muted-foreground">No lanes match.</li>}
+            {shown.map((l) => (
+              <li key={l.key}>
                 <button
-                  onClick={() => toggle(l.port.name)}
-                  aria-pressed={selected === l.port.name}
-                  onMouseEnter={() => setHovered(l.port.name)}
+                  onClick={() => select(l.key)}
+                  onMouseEnter={() => setHovered(l.key)}
                   onMouseLeave={() => setHovered(null)}
-                  className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/40 ${selected === l.port.name ? "bg-muted/60" : ""}`}
+                  className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
                 >
-                  <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[t]}`} />
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[tone(l)]}`} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">→ {l.port.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {l.total} shipments · {l.mismatch} mismatches{l.review ? ` · ${l.review} review` : ""}
-                    </span>
+                    <span className="block truncate text-sm font-medium">{l.label}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{summary(l)}{l.note ? ` · ${l.note}` : ""}</span>
                   </span>
-                  <ProgressRing value={l.ok} max={l.total} color={RING[t]} />
                 </button>
               </li>
-            );
-          })}
-        </ul>
-        <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
-          {rows.length} BL comparisons · {lanes.length} lanes{unmapped ? ` · ${unmapped} with no recognised port` : ""}
-        </div>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

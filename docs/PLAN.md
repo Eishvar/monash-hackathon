@@ -1,7 +1,7 @@
 # Plan — 2-day build (started 2026-09-19)
 
 ## Next session
-**UI redesign (gameplan.md) done 2026-09-22**: sidebar shell, dark default, inbox table, split-panel email page + Review Activity drawer, review queue, metrics route map (`src/lib/ports.ts`, `ShippingRouteMap.tsx`), floating Operator Guide. Backend is OpenRouter-only (D19). **Still to do (backend + UI):** CSV export (`/export/csv`) + JSON export buttons (wire the disabled Export button on the Inbox), manual upload endpoint + upload panel on Process, Gmail ingestion route (user does the Google OAuth setup afterwards).
+**UI redesign (gameplan.md) done 2026-09-22**: sidebar shell, dark default, inbox table, split-panel email page + Review Activity drawer, review queue, metrics route map (`src/lib/ports.ts`, `ShippingRouteMap.tsx`), floating Operator Guide. Backend is OpenRouter-only (D19). **Gmail view (2026-09-22):** `/gmail` has a Simulate inbound email menu (5 scenarios, D20). **Process page (2026-09-22):** PDF upload -> `/upload` (D21). **Still to do (backend + UI):** CSV export (`/export/csv`) + JSON export buttons (wire the disabled Export button on the Inbox), manual upload endpoint + upload panel on Process, Gmail ingestion route (user does the Google OAuth setup afterwards).
 
 ## Previous notes
 **All milestones M0–M6 are done.** Remaining work is yours (Claude cannot do it): (1) record the ~4-minute demo video from

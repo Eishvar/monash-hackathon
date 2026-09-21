@@ -10,6 +10,15 @@
       "final": 1.0,
       "end_to_end": "46/46",
       "rule_share": 0.879
+    },
+    "scores": {
+      "final": 1.0,
+      "classification_f1": 1.0,
+      "defect_f1": 1.0,
+      "end_to_end": "46/46",
+      "escalation_recall": 1.0,
+      "escalation_precision": 1.0,
+      "escalated": "20/20"
     }
   },
   "paraphrases": {
