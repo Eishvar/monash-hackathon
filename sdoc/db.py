@@ -33,6 +33,7 @@ class Repository(Protocol):
     def get_run(self, run_id: str) -> dict | None: ...
     def add_review(self, review: dict) -> None: ...
     def list_reviews(self, email_id: str) -> list[dict]: ...
+    def all_reviews(self) -> list[dict]: ...
     def upsert_run(self, run: dict) -> None: ...
     def latest_run(self) -> dict | None: ...
     def cache_get(self, key: str) -> dict | None: ...
@@ -140,6 +141,9 @@ class SupabaseRepo:
     def list_reviews(self, email_id: str) -> list[dict]:
         return self.c.table("reviews").select("*").eq("email_id", email_id).order("id").execute().data
 
+    def all_reviews(self) -> list[dict]:
+        return self._all(lambda: self.c.table("reviews").select("*"), "id")
+
     def upsert_run(self, run: dict) -> None:
         self.c.table("runs").upsert(run).execute()
 
@@ -214,6 +218,9 @@ class MemoryRepo:
 
     def list_reviews(self, email_id):
         return [r for r in self.reviews if r["email_id"] == email_id]
+
+    def all_reviews(self):
+        return list(self.reviews)
 
     def upsert_run(self, run):
         self.runs[run["id"]] = {**self.runs.get(run["id"], {}), **run}

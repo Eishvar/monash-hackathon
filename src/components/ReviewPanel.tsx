@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { apiPost, FIELDS, FIELD_LABEL, type FieldName, type FieldRow, type Result } from "@/lib/api";
-import { ErrorBanner, buttonPrimary, buttonSecondary } from "@/components/ui";
+import { useEffect, useState } from "react";
+import { apiPost, describeReview, FIELDS, FIELD_LABEL, type FieldName, type FieldRow, type Result, type ReviewPreview } from "@/lib/api";
+import { ErrorBanner, FieldChip, StatusPill, buttonPrimary, buttonSecondary } from "@/components/ui";
 
 type Values = Record<FieldName, { si: string; bl: string }>;
 
@@ -33,6 +33,25 @@ export function ReviewPanel({ emailId, result, onDone }: { emailId: string; resu
   }
   const changed = Object.keys(corrections).length;
   const canConfirm = rows.length > 0 && changed === 0;
+
+  // Live "what happens if you save": debounced dry run against the same deterministic decision code.
+  const [preview, setPreview] = useState<ReviewPreview | null>(null);
+  const correctionsKey = JSON.stringify(corrections);
+  useEffect(() => {
+    if (changed === 0) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      apiPost<ReviewPreview>(`/reviews/${emailId}/preview`, { action: "correct", corrections: JSON.parse(correctionsKey) })
+        .then((p) => !cancelled && setPreview(p))
+        .catch(() => !cancelled && setPreview(null));
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [emailId, correctionsKey, changed]);
+  const outcome: Pick<ReviewPreview, "status" | "review_reason" | "defect_fields"> | null =
+    changed === 0 ? { status: result.status, review_reason: result.review_reason, defect_fields: result.defect_fields } : preview;
 
   async function submit(action: "confirm" | "correct") {
     setBusy(true);
@@ -82,6 +101,27 @@ export function ReviewPanel({ emailId, result, onDone }: { emailId: string; resu
         <span className="mb-1 block text-xs font-medium uppercase text-muted-foreground">Note (optional)</span>
         <input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. checked against the original PDF" className={inputCls} />
       </label>
+      {outcome && (
+        <div className="rounded-lg border border-line bg-surface-2 p-3 text-sm" aria-live="polite">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium">{changed === 0 ? "Current result" : "Result after saving"}</span>
+            <StatusPill status={outcome.status} />
+          </div>
+          <div className="mt-2">
+            {outcome.status === "MISMATCH" ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-muted-foreground">Mismatch in:</span>
+                {outcome.defect_fields.map((f) => <FieldChip key={f} field={f} />)}
+              </div>
+            ) : outcome.status === "OK" ? (
+              <span className="text-muted-foreground">No mismatch detected.</span>
+            ) : (
+              <span className="text-muted-foreground">{describeReview(outcome)}</span>
+            )}
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">Recomputed by the same deterministic rules as the pipeline — the AI does not decide.</p>
+        </div>
+      )}
       {error && <ErrorBanner message={error} />}
       <div className="flex flex-wrap gap-3">
         <button className={buttonPrimary} disabled={busy || changed === 0} onClick={() => submit("correct")}>

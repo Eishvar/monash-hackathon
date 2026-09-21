@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { REASON_LABEL, type QueueItem } from "@/lib/api";
+import { REASON_LABEL, type QueueItem, type ReviewStats } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { Card, ErrorBanner, PageHeader, Skeleton, buttonSecondary } from "@/components/ui";
+import { ReviewStatsTiles } from "@/components/ReviewStatsTiles";
+import { Card, ErrorBanner, PageHeader, Skeleton, StatusPill, buttonSecondary } from "@/components/ui";
 import { Separator } from "@/components/ui/separator";
 
 const ORDER = ["processing_error", "missing_attachment", "unreadable", "wrong_doc_type", "missing_value"];
@@ -18,6 +19,7 @@ const TITLE: Record<string, string> = { processing_error: "Processing failed —
 
 export default function ReviewQueue() {
   const { data, error, loading, reload } = useApi<QueueItem[]>("/review-queue");
+  const stats = useApi<ReviewStats>("/metrics/reviews");
 
   const groups = new Map<string, QueueItem[]>();
   for (const q of data ?? []) {
@@ -31,8 +33,9 @@ export default function ReviewQueue() {
       <PageHeader
         title="Review queue"
         subtitle="Cases the system would not guess on. Open one, check the source values, confirm or correct."
-        actions={<button className={buttonSecondary} onClick={reload}>Refresh</button>}
+        actions={<button className={buttonSecondary} onClick={() => { reload(); stats.reload(); }}>Refresh</button>}
       />
+      {stats.data && <div className="mb-6"><ReviewStatsTiles stats={stats.data} /></div>}
       {error && <ErrorBanner message={error} onRetry={reload} />}
       {loading && !data && <Skeleton className="h-40 w-full" />}
       {data && data.length === 0 && (
@@ -74,6 +77,30 @@ export default function ReviewQueue() {
           </section>
         ))}
       </div>
+
+      {stats.data && stats.data.recent.length > 0 && (
+        <section className="mt-10" aria-labelledby="recent-reviews">
+          <h2 id="recent-reviews" className="mb-3 text-sm font-semibold">Recently reviewed</h2>
+          <ul className="divide-y divide-border rounded-xl border border-border bg-card">
+            {stats.data.recent.map((r, i) => (
+              <li key={`${r.email_id}-${i}`}>
+                <Link href={`/emails/${r.email_id}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm transition-colors hover:bg-muted/40">
+                  <span className="font-mono text-xs text-muted-foreground">{r.email_id}</span>
+                  <span className="min-w-0 flex-1 truncate">{r.subject || "(no subject)"}</span>
+                  <span className="text-xs text-muted-foreground">{r.action === "correct" ? "Corrected" : "Confirmed"}</span>
+                  {r.before_status && r.after_status && (
+                    <span className="inline-flex items-center gap-1.5">
+                      <StatusPill status={r.before_status} />
+                      <span aria-label="became" className="text-muted-foreground">→</span>
+                      <StatusPill status={r.after_status} />
+                    </span>
+                  )}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </>
   );
 }

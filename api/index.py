@@ -93,6 +93,17 @@ def review(email_id: str, req: ReviewRequest, svc: Service = Depends(get_service
     return _call(svc.review, email_id, req.action, req.corrections, req.note)
 
 
+@app.post("/api/py/reviews/{email_id}/preview")
+def review_preview(email_id: str, req: ReviewRequest, svc: Service = Depends(get_service)):
+    """Dry run: the verdict the corrections would produce. Nothing is saved."""
+    return _call(svc.preview_review, email_id, req.corrections)
+
+
+@app.get("/api/py/metrics/reviews")
+def metrics_reviews(svc: Service = Depends(get_service)):
+    return svc.review_stats()
+
+
 @app.get("/api/py/export/submission")
 def export_submission(include_extra: bool = False, svc: Service = Depends(get_service)):
     return svc.export_submission(include_extra)

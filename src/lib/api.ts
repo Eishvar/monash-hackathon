@@ -93,13 +93,47 @@ export interface Email {
   attachments: string[];
 }
 
+export interface ReviewSnapshot {
+  status: Status;
+  review_reason: string | null;
+  defect_fields?: FieldName[];
+  fields?: FieldRow[];
+}
+
 export interface Review {
   id: number;
   action: "confirm" | "correct";
   note: string | null;
   created_at: string;
-  before: { status: Status; review_reason: string | null } | null;
-  after: { status: Status; review_reason: string | null } | null;
+  before: ReviewSnapshot | null;
+  after: ReviewSnapshot | null;
+}
+
+export interface ReviewPreview {
+  status: Status;
+  review_reason: string | null;
+  has_defect: boolean;
+  defect_fields: FieldName[];
+  fields: FieldRow[];
+}
+
+export interface ReviewStats {
+  total: number;
+  confirmed: number;
+  corrected: number;
+  verdict_changed: number;
+  transitions: Record<string, number>;
+  fields_corrected: Record<string, number>;
+  queue_open: number;
+  recent: {
+    email_id: string;
+    subject: string | null;
+    action: "confirm" | "correct";
+    before_status: Status | null;
+    after_status: Status | null;
+    note: string | null;
+    created_at: string;
+  }[];
 }
 
 export interface EmailDetail {

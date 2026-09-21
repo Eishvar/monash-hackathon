@@ -361,3 +361,22 @@ def test_routes_endpoint_returns_ports_from_the_documents(client, svc):
 
 
     assert rows['email_004']['sender'] == 'a@x.com'
+
+
+def test_review_preview_recomputes_without_writing_and_stats_count_reviews(client, svc):
+    svc.process("email_003")  # BL consignee blank -> NEEDS_REVIEW / missing_value
+    svc.process("email_002")
+    before = dict(svc.repo.get_result("email_003"))
+    p = client.post("/api/py/reviews/email_003/preview", json={"action": "correct", "corrections": {"consignee": {"bl": "SOMEONE ELSE LTD"}}}).json()
+    assert (p["status"], p["defect_fields"]) == ("MISMATCH", ["consignee"])
+    assert svc.repo.get_result("email_003") == before and svc.repo.list_reviews("email_003") == []
+    assert client.post("/api/py/reviews/email_003/preview", json={"action": "correct", "corrections": {"vessel": {"si": "x"}}}).status_code == 400
+    assert client.post("/api/py/reviews/email_999/preview", json={"action": "correct"}).status_code == 404
+
+    svc.review("email_003", "correct", {"consignee": {"bl": "SOMEONE ELSE LTD"}})
+    svc.review("email_002", "confirm")
+    s = client.get("/api/py/metrics/reviews").json()
+    assert (s["total"], s["confirmed"], s["corrected"], s["verdict_changed"]) == (2, 1, 1, 1)
+    assert s["transitions"] == {"NEEDS_REVIEW→MISMATCH": 1}
+    assert s["fields_corrected"] == {"consignee": 1} and s["queue_open"] == 0
+    assert {r["email_id"] for r in s["recent"]} == {"email_002", "email_003"}

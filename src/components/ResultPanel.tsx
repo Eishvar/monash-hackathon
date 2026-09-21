@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
-import { ChevronDown, CircleAlert, CircleCheck, Info, OctagonX, Sparkles, TriangleAlert, type LucideIcon } from "lucide-react";
-import { CATEGORY_LABEL, describeReview, FIELD_LABEL, type Result } from "@/lib/api";
+import { ChevronDown, CircleAlert, CircleCheck, Info, OctagonX, Sparkles, TriangleAlert, UserCheck, type LucideIcon } from "lucide-react";
+import { CATEGORY_LABEL, describeReview, FIELD_LABEL, FIELDS, STATUS_LABEL, type FieldRow, type Result, type Review } from "@/lib/api";
+import { StatusPill } from "@/components/ui";
 
 /** Titled card used across the report layouts. */
 export function Section({ title, description, action, children }: { title: string; description?: string; action?: ReactNode; children: ReactNode }) {
@@ -55,8 +56,11 @@ function verdict(result: Result): { Icon: LucideIcon; tone: keyof typeof TONE; t
 }
 
 /** The verdict headline plus the AI summary. */
-export function VerdictCard({ result }: { result: Result }) {
+export function VerdictCard({ result, reviews = [] }: { result: Result; reviews?: Review[] }) {
   const v = verdict(result);
+  const latest = reviews.length ? reviews[reviews.length - 1] : null;
+  const from = latest?.before?.status;
+  const to = latest?.after?.status;
   return (
     <section className="rounded-xl border border-border bg-card p-5">
       <div className="flex items-start gap-4">
@@ -66,6 +70,17 @@ export function VerdictCard({ result }: { result: Result }) {
         <div className="min-w-0">
           <h2 className="text-lg font-semibold leading-tight">{v.title}</h2>
           <p className="mt-1 text-sm text-muted-foreground">{v.text}</p>
+          {result.reviewed && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+              <span className="inline-flex items-center gap-1 rounded-md bg-ok-bg px-2 py-0.5 font-medium text-ok">
+                <UserCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                Verified by a human reviewer
+              </span>
+              {from && to && from !== to && (
+                <span className="text-muted-foreground">Status changed from {STATUS_LABEL[from]} to {STATUS_LABEL[to]} by review</span>
+              )}
+            </div>
+          )}
         </div>
       </div>
       {result.explanation && (
@@ -78,5 +93,56 @@ export function VerdictCard({ result }: { result: Result }) {
         </div>
       )}
     </section>
+  );
+}
+
+/** Field-level diff between two review snapshots: `Consignee (BL): "old" → "new"`. */
+export function reviewDiff(before: FieldRow[] = [], after: FieldRow[] = []): string[] {
+  const was = new Map(before.map((r) => [r.field, r]));
+  const out: string[] = [];
+  const q = (v: string | null | undefined) => (v ? `“${v.replace(/\s*\n\s*/g, ", ")}”` : "(blank)");
+  for (const f of FIELDS) {
+    const a = after.find((r) => r.field === f);
+    if (!a) continue;
+    const b = was.get(f);
+    for (const side of ["si", "bl"] as const) {
+      if ((b?.[side] ?? null) !== (a[side] ?? null) && (b || a[side])) out.push(`${FIELD_LABEL[f]} (${side.toUpperCase()}): ${q(b?.[side])} → ${q(a[side])}`);
+    }
+  }
+  return out;
+}
+
+/** Audit trail of human reviews, newest first. */
+export function ReviewHistory({ reviews }: { reviews: Review[] }) {
+  const fmt = (s: string) => new Date(s).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return (
+    <ul className="divide-y divide-border">
+      {[...reviews].reverse().map((r) => {
+        const diff = r.action === "correct" ? reviewDiff(r.before?.fields, r.after?.fields) : [];
+        return (
+          <li key={r.id} className="space-y-2 py-3 first:pt-0 last:pb-0">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${r.action === "correct" ? "bg-ai-bg text-ai" : "bg-ok-bg text-ok"}`}>
+                {r.action === "correct" ? "Corrected" : "Confirmed"}
+              </span>
+              <time className="text-xs text-muted-foreground" dateTime={r.created_at}>{fmt(r.created_at)}</time>
+              {r.before && r.after && (
+                <span className="ml-auto inline-flex items-center gap-1.5">
+                  <StatusPill status={r.before.status} />
+                  <span aria-label="became" className="text-muted-foreground">→</span>
+                  <StatusPill status={r.after.status} />
+                </span>
+              )}
+            </div>
+            {r.note && <p className="text-sm">{r.note}</p>}
+            {diff.length > 0 && (
+              <ul className="space-y-0.5 font-mono text-xs text-muted-foreground">
+                {diff.map((d) => <li key={d} className="break-words">{d}</li>)}
+              </ul>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }

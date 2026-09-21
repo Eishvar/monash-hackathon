@@ -178,14 +178,27 @@ class Service:
         ]
 
     # -- human review: confirm / correct -> recompute -> audit ---------------------------------------------------------
-    def review(self, email_id: str, action: str, corrections: dict[str, dict[str, str | None]] | None = None,
-               note: str | None = None) -> dict:
+    @staticmethod
+    def _recompute(result: dict, corrections: dict) -> dict:
+        """Pure: the result row's decision fields after applying `corrections`, through the same `decide()` as the pipeline."""
+        rows = result.get("fields") or result.get("provisional_fields") or []
+        if not (rows or corrections):
+            return {}
+        values = {f: {"si": None, "bl": None} for f in FIELDS}
+        for r in rows:
+            values[r["field"]] = {"si": r["si"], "bl": r["bl"]}
+        for f, sides in corrections.items():
+            values[f].update({s: (v.strip() if isinstance(v, str) and v.strip() else None) for s, v in sides.items()})
+        d = decide(Doc("SI", {f: values[f]["si"] for f in FIELDS}), Doc("BL", {f: values[f]["bl"] for f in FIELDS}))
+        return dict(status=d.status, review_reason=d.review_reason, has_defect=d.has_defect,
+                    defect_fields=d.defect_fields, fields=[asdict(r) for r in d.fields])
+
+    def _validated_result(self, email_id: str, corrections: dict, action: str = "correct") -> dict:
         if action not in ("confirm", "correct"):
             raise BadRequest("action must be 'confirm' or 'correct'")
         result = self.repo.get_result(email_id)
         if result is None:
             raise NotFound(email_id)
-        corrections = corrections or {}
         for f, sides in corrections.items():
             if f not in FIELDS or not set(sides) <= {"si", "bl"}:
                 raise BadRequest(f"bad correction for {f!r}: fields must be one of {FIELDS}, sides 'si'/'bl'")
@@ -194,25 +207,65 @@ class Service:
         if result["status"] == "ERROR" and not corrections:
             # Confirming would clear the error and hide a failed email from the queue while its status stays ERROR.
             raise BadRequest("this email failed to process: retry processing, or supply values for the fields")
+        return result
 
+    def preview_review(self, email_id: str, corrections: dict[str, dict[str, str | None]] | None = None) -> dict:
+        """Dry run of `review`: what the verdict would become. Writes nothing."""
+        corrections = corrections or {}
+        result = self._validated_result(email_id, corrections, "correct" if corrections else "confirm")
+        new = {**result, **self._recompute(result, corrections)}
+        return {k: new.get(k) for k in ("status", "review_reason", "has_defect", "defect_fields", "fields")}
+
+    def review(self, email_id: str, action: str, corrections: dict[str, dict[str, str | None]] | None = None,
+               note: str | None = None) -> dict:
+        corrections = corrections or {}
+        result = self._validated_result(email_id, corrections, action)
         before = {k: result.get(k) for k in ("status", "review_reason", "defect_fields", "has_defect", "fields")}
-        rows = result.get("fields") or result.get("provisional_fields") or []
-        new = dict(result)
-        if rows or corrections:
-            values = {f: {"si": None, "bl": None} for f in FIELDS}
-            for r in rows:
-                values[r["field"]] = {"si": r["si"], "bl": r["bl"]}
-            for f, sides in corrections.items():
-                values[f].update({s: (v.strip() if isinstance(v, str) and v.strip() else None) for s, v in sides.items()})
-            d = decide(Doc("SI", {f: values[f]["si"] for f in FIELDS}), Doc("BL", {f: values[f]["bl"] for f in FIELDS}))
-            new.update(status=d.status, review_reason=d.review_reason, has_defect=d.has_defect,
-                       defect_fields=d.defect_fields, fields=[asdict(r) for r in d.fields])
+        new = {**result, **self._recompute(result, corrections)}
         new.update(reviewed=True, processing_error=None)
         self.repo.upsert_result(new)
         after = {k: new.get(k) for k in before}
         self.repo.add_review({"email_id": email_id, "action": action, "before": before, "after": after,
                               "note": note or ("corrected: " + ", ".join(corrections) if corrections else None)})
         return self.repo.get_result(email_id)
+
+    def review_stats(self) -> dict:
+        """Human-in-the-loop numbers over the audit trail: how many reviews, what they changed, what still waits."""
+        reviews = self.repo.all_reviews()
+        transitions: dict[str, int] = {}
+        fields_corrected: dict[str, int] = {}
+        for r in reviews:
+            b, a = r.get("before") or {}, r.get("after") or {}
+            if b.get("status") != a.get("status"):
+                key = f"{b.get('status')}→{a.get('status')}"
+                transitions[key] = transitions.get(key, 0) + 1
+            if r.get("action") != "correct":
+                continue
+            was = {f["field"]: f for f in (b.get("fields") or [])}
+            for f in a.get("fields") or []:
+                old = was.get(f["field"])
+                if old is None:  # scan / provisional case: nothing was recorded before, so count what was entered
+                    changed = f.get("si") is not None or f.get("bl") is not None
+                else:
+                    changed = (old.get("si"), old.get("bl")) != (f.get("si"), f.get("bl"))
+                if changed:
+                    fields_corrected[f["field"]] = fields_corrected.get(f["field"], 0) + 1
+        open_rows = self.repo.all_results("email_id,status,reviewed")
+        recent = sorted(reviews, key=lambda r: str(r.get("created_at") or ""), reverse=True)[:8]
+        headers = self.repo.email_headers([r["email_id"] for r in recent])
+        return {
+            "total": len(reviews),
+            "confirmed": sum(r.get("action") == "confirm" for r in reviews),
+            "corrected": sum(r.get("action") == "correct" for r in reviews),
+            "verdict_changed": sum(transitions.values()),
+            "transitions": transitions,
+            "fields_corrected": fields_corrected,
+            "queue_open": sum(r["status"] in ("NEEDS_REVIEW", "ERROR") and not r.get("reviewed") for r in open_rows),
+            "recent": [{"email_id": r["email_id"], "subject": headers.get(r["email_id"], {}).get("subject"),
+                        "action": r.get("action"), "before_status": (r.get("before") or {}).get("status"),
+                        "after_status": (r.get("after") or {}).get("status"), "note": r.get("note"),
+                        "created_at": r.get("created_at")} for r in recent],
+        }
 
     # -- outputs -----------------------------------------------------------------------------------------------
     def export_submission(self, include_extra: bool = False) -> dict[str, dict]:
