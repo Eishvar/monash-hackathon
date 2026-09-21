@@ -54,71 +54,62 @@ const SECTIONS = [
 export function AppSidebar() {
   const pathname = usePathname() ?? "/";
   const { data } = useApi<Metrics>("/metrics");
-  const [collapsed, setCollapsed] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <aside className={`sticky top-0 flex h-screen shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ${collapsed ? "w-[4.5rem]" : "w-60"}`}>
-      <div className={`flex items-center border-b border-sidebar-border py-4 ${collapsed ? "justify-center px-2" : "gap-3 px-4"}`}>
-        <Link href="/" aria-label="Shippr home" className="shrink-0">
-          <ShipprLogo />
-        </Link>
-        {!collapsed && <span className="text-base font-semibold tracking-tight">Shippr</span>}
-        <button
-          type="button"
-          onClick={() => setCollapsed((value) => !value)}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${collapsed ? "absolute left-[3.65rem] top-4 bg-sidebar" : "ml-auto"}`}
-        >
-          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d={collapsed ? "m9 18 6-6-6-6" : "m15 18-6-6 6-6"} />
-          </svg>
-        </button>
-      </div>
+    <aside
+      className="relative z-20 w-[4.5rem] shrink-0 text-sidebar-foreground"
+      onMouseEnter={() => setIsExpanded(true)}
+      onMouseLeave={() => setIsExpanded(false)}
+    >
+      <div className={`sticky top-0 flex h-screen flex-col overflow-hidden border-r border-sidebar-border bg-sidebar shadow-2xl transition-[width] duration-200 ${isExpanded ? "w-60" : "w-[4.5rem]"}`}>
+        <div className="flex min-h-[4.5rem] items-center gap-3 border-b border-sidebar-border px-3">
+          <Link href="/" aria-label="Shippr home" className="shrink-0">
+            <ShipprLogo />
+          </Link>
+          <span className="whitespace-nowrap text-base font-semibold tracking-tight opacity-0 transition-opacity duration-150 group-hover:opacity-100">Shippr</span>
+        </div>
 
-      <nav aria-label="Main" className={`flex-1 overflow-y-auto pb-3 ${collapsed ? "px-2" : "px-3"}`}>
-        {SECTIONS.map((s) => (
-          <div key={s.label}>
-            {!collapsed && <div className="px-3 pb-1 pt-5 text-xs uppercase tracking-wider text-muted-foreground">{s.label}</div>}
-            <ul className="space-y-0.5">
-              {s.links.map((l) => {
-                const active = l.active(pathname);
-                return (
-                  <li key={l.href}>
-                    <Link
-                      href={l.href}
-                      aria-current={active ? "page" : undefined}
-                      aria-label={collapsed ? l.label : undefined}
-                      title={collapsed ? l.label : undefined}
-                      className={`relative flex items-center rounded-md py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${collapsed ? "justify-center px-2" : "gap-3 px-3"} ${
-                        active ? "bg-sidebar-accent text-sidebar-accent-foreground" : "text-sidebar-foreground"
-                      }`}
-                    >
-                      {l.icon}
-                      {!collapsed && l.label}
-                      {l.href === "/review" && data && data.review_queue > 0 && (
-                        <span className={`${collapsed ? "absolute -mr-6 -mt-5" : "ml-auto"} rounded-full bg-warn-bg px-1.5 text-xs font-semibold text-warn`} aria-label={`${data.review_queue} waiting`}>
-                          {data.review_queue}
-                        </span>
-                      )}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
-      </nav>
+        <nav aria-label="Main" className="flex-1 overflow-y-auto px-2 pb-3">
+          {SECTIONS.map((s) => (
+            <div key={s.label}>
+              <div className="whitespace-nowrap px-3 pb-1 pt-5 text-xs uppercase tracking-wider text-muted-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100">{s.label}</div>
+              <ul className="space-y-0.5">
+                {s.links.map((l) => {
+                  const active = l.active(pathname);
+                  return (
+                    <li key={l.href}>
+                      <Link
+                        href={l.href}
+                        aria-current={active ? "page" : undefined}
+                        aria-label={l.label}
+                        title={l.label}
+                        className={`relative flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${active ? "bg-sidebar-accent text-sidebar-accent-foreground" : "text-sidebar-foreground"}`}
+                      >
+                        {l.icon}
+                        <span className="ml-3 whitespace-nowrap opacity-0 transition-opacity duration-150 group-hover:opacity-100">{l.label}</span>
+                        {l.href === "/review" && data && data.review_queue > 0 && (
+                          <span className="absolute left-8 top-0 rounded-full bg-warn-bg px-1.5 text-xs font-semibold text-warn group-hover:static group-hover:ml-auto" aria-label={`${data.review_queue} waiting`}>
+                            {data.review_queue}
+                          </span>
+                        )}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </nav>
 
-      <div className={`border-t border-sidebar-border p-3 ${collapsed ? "px-2" : ""}`}>
-        <div className={`flex items-center rounded-md py-2 text-sm text-sidebar-foreground ${collapsed ? "justify-center" : "gap-3 px-2"}`} title={collapsed ? "Operator" : undefined}>
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-sidebar-accent text-xs font-semibold text-sidebar-accent-foreground">OP</div>
-          {!collapsed && <span className="flex-1 text-sm font-medium">Operator</span>}
-          {!collapsed && (
-            <svg className="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+        <div className="border-t border-sidebar-border p-3">
+          <div className="flex items-center rounded-md px-1 py-2 text-sm text-sidebar-foreground" title="Operator">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-xs font-semibold text-sidebar-accent-foreground">OP</div>
+            <span className="ml-3 flex-1 whitespace-nowrap text-sm font-medium opacity-0 transition-opacity duration-150 group-hover:opacity-100">Operator</span>
+            <svg className="h-4 w-4 shrink-0 text-muted-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
-          )}
+          </div>
         </div>
       </div>
     </aside>
