@@ -9,7 +9,7 @@ flowchart LR
     SVC <--> DB[(Supabase Postgres<br/>emails · results · reviews · runs · llm_cache)]
     PIPE <--> ST[(Supabase Storage<br/>attachments bucket)]
     PIPE --> LLM[sdoc.llm<br/>OpenAI-compatible client]
-    LLM --> G[Groq<br/>text tasks]
+    LLM --> G[OpenRouter<br/>text tasks]
     LLM --> O[OpenRouter<br/>vision]
     LLM <--> CACHE[(disk cache + llm_cache table)]
 ```

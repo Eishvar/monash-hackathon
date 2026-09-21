@@ -28,7 +28,7 @@ export function StatusPill({ status }: { status: Status }) {
 
 export function CategoryBadge({ category }: { category: Category }) {
   return (
-    <span className="inline-flex items-center rounded-md border border-line bg-surface-2 px-2 py-0.5 text-xs font-medium text-muted">
+    <span className="inline-flex items-center rounded-md border border-line bg-surface-2 px-2 py-0.5 text-xs font-medium text-muted-foreground">
       {CATEGORY_LABEL[category]}
     </span>
   );
@@ -36,7 +36,7 @@ export function CategoryBadge({ category }: { category: Category }) {
 
 export function DecidedBy({ result }: { result: Pick<ResultSummary, "decided_by" | "reviewed"> }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-muted">
+    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
       {result.decided_by === "llm" ? (
         <span className="rounded bg-ai-bg px-1.5 py-0.5 font-semibold text-ai" title="An AI model was needed for this decision">
           AI
@@ -61,18 +61,18 @@ export function KpiTile({ label, value, hint, tone }: { label: string; value: Re
   const color = tone === "bad" ? "text-bad" : tone === "warn" ? "text-warn" : tone === "ok" ? "text-ok" : "text-ink";
   return (
     <div className="rounded-xl border border-line bg-surface p-4">
-      <div className="text-xs font-medium uppercase tracking-wide text-muted">{label}</div>
+      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
       <div className={`mt-1 text-2xl font-semibold tabular-nums ${color}`}>{value}</div>
-      {hint && <div className="mt-0.5 text-xs text-muted">{hint}</div>}
+      {hint && <div className="mt-0.5 text-xs text-muted-foreground">{hint}</div>}
     </div>
   );
 }
 
 export function Bar({ label, value, max, tone = "accent" }: { label: string; value: number; max: number; tone?: "accent" | "bad" | "warn" | "ok" }) {
-  const fill = { accent: "bg-accent", bad: "bg-bad", warn: "bg-warn", ok: "bg-ok" }[tone];
+  const fill = { accent: "bg-foreground", bad: "bg-bad", warn: "bg-warn", ok: "bg-ok" }[tone];
   return (
     <div className="grid grid-cols-[minmax(7rem,11rem)_1fr_3rem] items-center gap-3 text-sm">
-      <span className="truncate text-muted">{label}</span>
+      <span className="truncate text-muted-foreground">{label}</span>
       <span className="h-2 overflow-hidden rounded-full bg-surface-2" role="presentation">
         <span className={`block h-full rounded-full ${fill}`} style={{ width: `${max ? Math.max(2, (value / max) * 100) : 0}%` }} />
       </span>
@@ -100,7 +100,7 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-        {subtitle && <p className="mt-0.5 text-sm text-muted">{subtitle}</p>}
+        {subtitle && <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>}
       </div>
       {actions}
     </div>
@@ -125,6 +125,6 @@ export function Skeleton({ className = "h-4 w-full" }: { className?: string }) {
 }
 
 export const buttonPrimary =
-  "inline-flex items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-fg transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50";
 export const buttonSecondary =
   "inline-flex items-center justify-center gap-2 rounded-lg border border-line bg-surface px-4 py-2 text-sm font-medium transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50";

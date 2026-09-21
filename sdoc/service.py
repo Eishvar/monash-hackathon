@@ -197,7 +197,7 @@ def build_service() -> Service:
     client = SupabaseHandle(url, key)
     repo = SupabaseRepo(client)
     llm = None
-    if llm_enabled() and (os.getenv("GROQ_API_KEY") or os.getenv("OPENROUTER_API_KEY")):
+    if llm_enabled() and os.getenv("OPENROUTER_API_KEY"):
         llm = OpenAICompatLLM(cache=TieredCache(DiskCache(cache_dir()), RepoCache(repo)))
     return Service(repo, SupabaseStore(client), llm)
 

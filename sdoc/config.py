@@ -3,7 +3,7 @@
 To swap a model: edit DEFAULT_MODELS below, or set env vars in `.env` (no code change), e.g.
     LLM_TEXT_MODEL=openai/gpt-oss-120b            # role default for all text tasks
     LLM_VISION_PROVIDER=openrouter
-    LLM_MODEL_CLASSIFY=qwen/qwen3.8-27b           # optional per-task override
+    LLM_MODEL_CLASSIFY=google/gemini-2.5-flash    # optional per-task override
 Tasks: classify, extract, adjudicate, explain (text role); vision (vision role).
 """
 import os
@@ -30,13 +30,13 @@ FIELDS = (
 
 # ---- LLM configuration: the ONLY place a default provider or model name appears -------------------------------
 DEFAULT_MODELS = {
-    "text": ("groq", "qwen/qwen3.8-27b"),
+    "text": ("openrouter", "google/gemini-2.5-flash"),
     "vision": ("openrouter", "google/gemini-2.5-flash"),
 }
 PROVIDERS = {  # OpenAI-compatible endpoints; extra_params are provider-specific request options
-    # Qwen3 on Groq: skip the thinking tokens (dropped automatically if the model rejects it)
-    "groq": {"base_url": "https://api.groq.com/openai/v1", "key_env": "GROQ_API_KEY", "extra_params": {"reasoning_effort": "none"}},
-    "openrouter": {"base_url": "https://openrouter.ai/api/v1", "key_env": "OPENROUTER_API_KEY"},
+    # Skip thinking tokens so the small per-task max_tokens caps are not eaten (dropped automatically if the model rejects it)
+    "openrouter": {"base_url": "https://openrouter.ai/api/v1", "key_env": "OPENROUTER_API_KEY",
+                   "extra_params": {"extra_body": {"reasoning": {"enabled": False}}}},
 }
 # USD per 1M tokens (input, output) for cost *estimates*. Missing entry = free tier / unknown -> reported as $0 + tokens.
 PRICES = {"openrouter/google/gemini-2.5-flash": (0.30, 2.50)}

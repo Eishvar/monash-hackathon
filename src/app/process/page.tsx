@@ -83,7 +83,7 @@ export default function ProcessPage() {
             </button>
           )}
         </div>
-        <p className="mt-3 text-xs text-muted">
+        <p className="mt-3 text-xs text-muted-foreground">
           Batches of {BATCH}. Results are already cached where the same input was seen before, so re-runs cost nothing; only new
           inputs reach the AI models. Human-reviewed results are reset when an email is reprocessed.
         </p>
@@ -96,12 +96,12 @@ export default function ProcessPage() {
               <span>
                 {progress.done} of {progress.total} processed
               </span>
-              <span className="tabular-nums text-muted">{pct}%</span>
+              <span className="tabular-nums text-muted-foreground">{pct}%</span>
             </div>
             <div className="h-2.5 overflow-hidden rounded-full bg-surface-2" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-              <div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${pct}%` }} />
+              <div className="h-full rounded-full bg-foreground transition-[width]" style={{ width: `${pct}%` }} />
             </div>
-            <p className="mt-2 text-xs text-muted">
+            <p className="mt-2 text-xs text-muted-foreground">
               Run <span className="font-mono">{progress.runId}</span> · {progress.log.length} batches
               {progress.log.length > 0 && ` · last batch ${progress.log[progress.log.length - 1].seconds}s`}
               {!running && progress.done >= progress.total && " · finished"}

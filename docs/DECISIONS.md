@@ -14,7 +14,7 @@ The scorer tracks `decided_by` rule share, so the organizers care about cost. De
 testable and can't invent mismatches. AI handles ambiguity (classification, messy extraction, mismatch
 adjudication, explanations), so it stays core functionality, as the organizers require.
 
-**D4 · Groq default, OpenRouter for vision, switchable via .env** (2026-09-19)
+**D4 · OpenRouter only (Gemini 2.5 Flash), switchable via .env** (2026-09-19, superseded 2026-09-22)
 Groq's free tier is enough for text tasks under rules-first + caching. Scanned PDFs need a strong vision model, so
 that task goes to OpenRouter. Both are OpenAI-compatible, so one client with a configurable base_url.
 
@@ -99,3 +99,8 @@ request sizes and query bounds are validated (the API is open by design, see REA
 **D7 · Vercel routing via vercel.json, not a Next rewrite** (2026-09-19)
 A Python function in `api/index.py` is served at `/api/index`. `vercel.json` rewrites `/api/py/*` to it in production, so
 the whole FastAPI app (all routes under `/api/py`) runs in one function. `next.config.ts` only proxies to local uvicorn in dev.
+
+**D19 · Groq removed; OpenRouter is the only LLM provider** (2026-09-22)
+Text and vision tasks both default to OpenRouter `google/gemini-2.5-flash` (`DEFAULT_MODELS` in `sdoc/config.py`; one key to manage).
+Thinking tokens are disabled through `extra_body` (dropped automatically if a model rejects it) so the small per-task token caps
+are not consumed. Re-scored on the local bundle: 1.0000, 88% rule share, 0 LLM failures. D4/D11 describe the earlier Groq setup.

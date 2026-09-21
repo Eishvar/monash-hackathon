@@ -7,6 +7,7 @@ import { apiPost, describeReview, FIELD_LABEL, type EmailDetail, type Result } f
 import { useApi } from "@/lib/useApi";
 import { FieldTable } from "@/components/FieldTable";
 import { ReviewPanel } from "@/components/ReviewPanel";
+import { ReviewActivityDrawer } from "@/components/ReviewActivityDrawer";
 import {
   Card,
   CategoryBadge,
@@ -31,7 +32,7 @@ function Verdict({ result }: { result: Result }) {
     return (
       <div className={`${base} border-line bg-surface`}>
         <div className="font-semibold">Not a document comparison</div>
-        <div className="mt-0.5 text-sm text-muted">This email was triaged as “{result.category.replace("_", " ").toLowerCase()}”; there is nothing to compare.</div>
+        <div className="mt-0.5 text-sm text-muted-foreground">This email was triaged as “{result.category.replace("_", " ").toLowerCase()}”; there is nothing to compare.</div>
       </div>
     );
   if (result.status === "MISMATCH")
@@ -95,13 +96,18 @@ export default function EmailReport() {
   const suggested = !!result && result.fields.length === 0 && result.provisional_fields.length > 0;
 
   return (
-    <div className="space-y-5">
+    <div className="flex min-h-0 gap-6">
+      <div className="min-w-0 flex-1 space-y-5">
       <div>
-        <Link href="/" className="text-sm text-muted hover:text-ink">
-          ← Inbox
-        </Link>
-        <h1 className="mt-1 text-xl font-semibold tracking-tight">{email.subject || "(no subject)"}</h1>
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-muted">
+        <nav aria-label="Breadcrumb" className="mb-4 flex items-center gap-1.5 text-sm text-muted-foreground">
+          <Link href="/" className="transition-colors hover:text-foreground">Inbox</Link>
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+          <span className="max-w-xs truncate font-medium text-foreground">{email.subject ?? email.email_id}</span>
+        </nav>
+        <h1 className="text-xl font-semibold tracking-tight">{email.subject || "(no subject)"}</h1>
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-muted-foreground">
           <span className="font-mono">{email.email_id}</span>
           <span>{email.sender}</span>
           {result && (
@@ -118,7 +124,7 @@ export default function EmailReport() {
 
       {!result ? (
         <Card>
-          <p className="text-sm text-muted">This email has not been processed yet.</p>
+          <p className="text-sm text-muted-foreground">This email has not been processed yet.</p>
           <button className={`${buttonSecondary} mt-3`} onClick={reprocess} disabled={busy}>
             {busy ? "Processing…" : "Process now"}
           </button>
@@ -129,10 +135,10 @@ export default function EmailReport() {
 
           {result.explanation && (
             <Card title={result.reviewed ? "Original explanation (before review)" : "Explanation"}>
-              <p className={`text-sm leading-6 ${result.reviewed ? "text-muted" : ""}`}>{result.explanation}</p>
-              <p className="mt-2 text-xs text-muted">
+              <p className={`text-sm leading-6 ${result.reviewed ? "text-muted-foreground" : ""}`}>{result.explanation}</p>
+              <p className="mt-2 text-xs text-muted-foreground">
                 Written by an AI model for the reviewer. It never changes the status
-                {result.reviewed ? ", and it is not updated after a review; see the audit trail." : "."}
+                {result.reviewed ? ", and it is not updated after a review; see Review Activity." : "."}
               </p>
             </Card>
           )}
@@ -142,7 +148,7 @@ export default function EmailReport() {
               {rows.length > 0 ? (
                 <FieldTable rows={rows} suggested={suggested} />
               ) : (
-                <p className="text-sm text-muted">No field values are available for this email ({describeReview(result)}).</p>
+                <p className="text-sm text-muted-foreground">No field values are available for this email ({describeReview(result)}).</p>
               )}
             </Card>
           )}
@@ -169,29 +175,10 @@ export default function EmailReport() {
                   }}
                 />
               ) : (
-                <p className="text-sm text-muted">
+                <p className="text-sm text-muted-foreground">
                   {result.reviewed ? "This result was confirmed by a reviewer." : "Open the editor to correct a value; the status is recomputed and logged."}
                 </p>
               )}
-            </Card>
-          )}
-
-          {reviews.length > 0 && (
-            <Card title="Audit trail">
-              <ol className="space-y-2 text-sm">
-                {reviews.map((r) => (
-                  <li key={r.id} className="flex flex-wrap gap-x-3">
-                    <span className="font-mono text-xs text-muted">{new Date(r.created_at).toLocaleString()}</span>
-                    <span className="font-medium">{r.action === "correct" ? "Corrected" : "Confirmed"}</span>
-                    {r.before && r.after && (
-                      <span className="text-muted">
-                        {r.before.status} → {r.after.status}
-                      </span>
-                    )}
-                    {r.note && <span>“{r.note}”</span>}
-                  </li>
-                ))}
-              </ol>
             </Card>
           )}
 
@@ -219,7 +206,7 @@ export default function EmailReport() {
             {result.notes.length > 0 && (
               <details className="mt-3">
                 <summary className="cursor-pointer text-sm font-medium">Processing notes ({result.notes.length})</summary>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted">
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
                   {result.notes.map((n, i) => (
                     <li key={i}>{n}</li>
                   ))}
@@ -229,7 +216,11 @@ export default function EmailReport() {
           </Card>
         </>
       )}
-      {loading && data && <p className="text-xs text-muted">Refreshing…</p>}
+      {loading && data && <p className="text-xs text-muted-foreground">Refreshing…</p>}
+      </div>
+      <div className="w-80 shrink-0">
+        <ReviewActivityDrawer result={result} reviews={reviews} />
+      </div>
     </div>
   );
 }

@@ -7,7 +7,7 @@ Bands: 10-pt criteria → Excellent 8–10 | 15-pt → 12–15 | 25-pt → 19–
 |---|---|---|---|---|
 | 1 | System Design & Architecture | 15 | Coherent, well justified, backed by the prototype | ARCHITECTURE.md diagram, DECISIONS.md log, clean module boundaries |
 | 2 | **Working Core Prototype** | **25** | Core flow works reliably end to end; the main technical idea is clearly built | Deployed app: inbox → classify → extract → compare → report → human review, on all 520 emails |
-| 3 | Technology Integration | 15 | Deep, seamless use of modern tech, strong craftsmanship | LLM cascade (Groq/OpenRouter), vision for scans, FastAPI + Next.js, Supabase, Vercel CI/CD |
+| 3 | Technology Integration | 15 | Deep, seamless use of modern tech, strong craftsmanship | LLM cascade (OpenRouter, Gemini 2.5 Flash), vision for scans, FastAPI + Next.js, Supabase, Vercel CI/CD |
 | 4 | Technical Feasibility & Validation | 15 | Critical assumptions validated with clear evidence; credible path to completion | Score log (organizer scorer), pytest suite, per-field accuracy, cost/latency per email, known limits |
 | 5 | Problem Statement Understanding | 10 | Strong understanding of the problem, context and why it matters | Built for the Averis Shipping Documentation Services workflow; handles every trap in the data |
 | 6 | Innovation & Solution Approach | 10 | Original, well justified, clear advantage | "LLM reads, code decides" cascade; source-evidence quotes; AI mismatch adjudication; rule-share cost metric |

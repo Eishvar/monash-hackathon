@@ -34,7 +34,7 @@ reviewed flag). The audit row stays as history; it is a genuine record of the de
 - **"What if an email tries to prompt-inject the model?"** The model only returns schema-validated JSON; values must quote evidence found in the document; code makes the decision and the adjudicator can only clear, never create, a mismatch.
 - **"Cost?"** Cold vision calls for the whole dataset cost about $0.009; repeat runs cost $0 (content-hash cache).
 - **"What happens when the AI fails?"** It degrades to the rule result, the failure is recorded, and a failed email is a visible, retryable `ERROR`.
-- **"Why Groq and OpenRouter?"** Fast free text inference for text tasks, and a strong vision model for scans; one OpenAI-compatible client, models swapped through `.env`.
+- **"Why OpenRouter?"** One API key and one OpenAI-compatible client for every task (text and vision) with Gemini 2.5 Flash; the model is swapped through `.env`.
 - **"Security?"** Keys only in server environment variables; Supabase row-level security on with no public policies and a private bucket; request sizes capped. Known gap: the demo API is unauthenticated (roadmap: shared key, then real auth).
 
 ## Five-slide outline

@@ -32,7 +32,7 @@ flowchart LR
     E[Email + attachments<br/>Supabase Postgres + Storage] --> P[Parse<br/>txt · docx · xlsx · pdf<br/>corrupt / scan detection]
     P --> C{Classify}
     C -- "rule fires" --> R[Rules]
-    C -- "rules abstain" --> L[Text LLM<br/>Groq]
+    C -- "rules abstain" --> L[Text LLM<br/>OpenRouter]
     R --> X[Extract 7 fields<br/>label aliases]
     L --> X
     X -- "gap in a field" --> L2[LLM gap-fill<br/>evidence must be quoted]
@@ -94,7 +94,7 @@ Scored with the organiser's scorer (aggregate output only; the answer key is nev
 | Requirement | Where it is |
 |---|---|
 | **AI in core functionality** | Email classification fallback, field extraction fallback, vision extraction for scans, mismatch adjudication, reviewer explanations (`sdoc/llm.py`, `classify.py`, `extract.py`, `adjudicate.py`, `explain.py`). Models are swappable through `.env`. |
-| **Cloud infrastructure** | Pipeline runs as a **Vercel Python function** (FastAPI); emails, attachments, results, review audit trail and LLM cache live in **Supabase** (Postgres + private Storage); inference via Groq and OpenRouter; GitHub → Vercel deploys on every push. |
+| **Cloud infrastructure** | Pipeline runs as a **Vercel Python function** (FastAPI); emails, attachments, results, review audit trail and LLM cache live in **Supabase** (Postgres + private Storage); inference via OpenRouter (Gemini 2.5 Flash); GitHub → Vercel deploys on every push. |
 | Architecture and decisions | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DECISIONS.md](docs/DECISIONS.md) (17 short records) |
 | Validation | Score log above, `scripts/evaluate.py` (ablation + unseen phrasings), 126 tests, `/metrics` page |
 | Practical value | REST API an RPA bot or SAP could call, audit trail, human-in-the-loop review, cost metrics |
@@ -104,7 +104,7 @@ Scored with the organiser's scorer (aggregate output only; the answer key is nev
 ```powershell
 python -m venv .venv; .venv\Scripts\Activate.ps1
 pip install -r requirements-dev.txt; npm install
-copy .env.example .env          # add GROQ_API_KEY, OPENROUTER_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+copy .env.example .env          # add OPENROUTER_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
 python scripts/run_pipeline.py            # -> outputs/submission.json (add --no-llm for rules only)
 python scripts/score.py                   # organiser's scorer, aggregate numbers
@@ -142,7 +142,7 @@ in `.env`. Defaults live in one block in `sdoc/config.py`. See `.env.example`.
 - No attachment preview in the UI yet (needs signed Storage URLs). Values come from the parsed documents.
 - OCR on scans is imperfect (`STATIONERYLLC`), which is why scans always go to a human. Roadmap: field-level confidence and
   highlighting the region on the page.
-- Cloud throughput is bounded by per-email database round-trips and the Groq free tier; a queue and batch writes would
+- Cloud throughput is bounded by per-email database round-trips and LLM rate limits; a queue and batch writes would
   remove both. Single-tenant data model.
 - Integrations: an inbound webhook so an RPA bot or SAP can push new emails, and a write-back of the verdict to the mailbox.
 

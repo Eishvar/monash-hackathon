@@ -49,22 +49,22 @@ def fake_openai(replies):
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("GROQ_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.delenv("LLM_DISABLED", raising=False)
     return OpenAICompatLLM(cache_path=tmp_path, sleep=lambda s: None)
 
 
 def test_llm_validates_caches_and_repairs(client):
-    client._clients["groq"] = fake_openai(['<think>hm</think>```json\n{"category": "SPAM"}\n```'])
+    client._clients["openrouter"] = fake_openai(['<think>hm</think>```json\n{"category": "SPAM"}\n```'])
     assert client.complete_json("classify", "sys", "body", ClassifyOut).category == "SPAM"
     assert client.usage.calls == 1
     client.complete_json("classify", "sys", "body", ClassifyOut)  # identical input: served from disk cache
     assert client.usage.calls == 1 and client.usage.cache_hits == 1
 
-    client._clients["groq"] = fake_openai(['{"category": "NOT_A_CATEGORY"}', '{"category": "GENERAL"}'])
+    client._clients["openrouter"] = fake_openai(['{"category": "NOT_A_CATEGORY"}', '{"category": "GENERAL"}'])
     assert client.complete_json("classify", "sys", "other body", ClassifyOut).category == "GENERAL"  # one repair retry
 
-    client._clients["groq"] = fake_openai(["nonsense", "still nonsense"])
+    client._clients["openrouter"] = fake_openai(["nonsense", "still nonsense"])
     with pytest.raises(LLMError):
         client.complete_json("classify", "sys", "third body", ClassifyOut)
 
@@ -74,8 +74,8 @@ def test_llm_failure_is_visible_when_disabled_or_keyless(client, monkeypatch):
     with pytest.raises(LLMError, match="disabled"):
         client.complete_json("classify", "s", "u", ClassifyOut)
     monkeypatch.delenv("LLM_DISABLED")
-    monkeypatch.delenv("GROQ_API_KEY")
-    monkeypatch.setattr(config, "resolve_model", lambda t: config.ModelSpec("groq", "m", "u", None))
+    monkeypatch.delenv("OPENROUTER_API_KEY")
+    monkeypatch.setattr(config, "resolve_model", lambda t: config.ModelSpec("openrouter", "m", "u", None))
     monkeypatch.setattr("sdoc.llm.resolve_model", config.resolve_model)
     with pytest.raises(LLMError, match="no API key"):
         client.complete_json("classify", "s", "u", ClassifyOut)
@@ -182,7 +182,7 @@ def test_rate_limit_waiting_is_capped_and_fails_visibly(client, monkeypatch):
     def create(**kwargs):
         raise openai.RateLimitError("rate limited", response=resp, body=None)
 
-    client._clients["groq"] = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    client._clients["openrouter"] = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
     slept = []
     client._sleep = slept.append
     with pytest.raises(LLMError, match="failed after waiting"):
@@ -194,17 +194,17 @@ def test_provider_specific_params_come_from_config_and_are_dropped_if_rejected(c
     import httpx
     import openai
 
-    assert config.resolve_model("classify").extra == {"reasoning_effort": "none"}
-    assert config.resolve_model("vision").extra == {}
+    assert config.resolve_model("classify").extra == {"extra_body": {"reasoning": {"enabled": False}}}
+    assert config.resolve_model("vision").extra == config.resolve_model("classify").extra
     sent = []
     resp = httpx.Response(400, request=httpx.Request("POST", "http://x"))
 
     def create(**kwargs):
-        sent.append("reasoning_effort" in kwargs)
+        sent.append("extra_body" in kwargs)
         if len(sent) == 1:
             raise openai.BadRequestError("unsupported", response=resp, body=None)
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"category": "SPAM"}'))], usage=None)
 
-    client._clients["groq"] = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    client._clients["openrouter"] = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
     assert client.complete_json("classify", "sys", "extras test", ClassifyOut).category == "SPAM"
     assert sent == [True, False]

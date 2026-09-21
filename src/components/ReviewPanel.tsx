@@ -7,7 +7,7 @@ import { ErrorBanner, buttonPrimary, buttonSecondary } from "@/components/ui";
 type Values = Record<FieldName, { si: string; bl: string }>;
 
 const LONG = new Set<FieldName>(["shipper", "consignee", "notify_party"]);
-const inputCls = "w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 font-mono text-[13px] focus:border-accent";
+const inputCls = "w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 font-mono text-[13px] focus:border-ring";
 
 function initialValues(rows: FieldRow[]): Values {
   const byField = new Map(rows.map((r) => [r.field, r]));
@@ -49,7 +49,7 @@ export function ReviewPanel({ emailId, result, onDone }: { emailId: string; resu
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted">
+      <p className="text-sm text-muted-foreground">
         {rows.length
           ? "Check each value against the source documents. Edit anything that is wrong, then save; the status is recomputed and your change is logged."
           : "No values could be read automatically. Enter the SI and BL values from the source documents; the status is recomputed once all seven fields are filled."}
@@ -70,7 +70,7 @@ export function ReviewPanel({ emailId, result, onDone }: { emailId: string; resu
               };
               return (
                 <label key={side} htmlFor={id} className="block">
-                  <span className="mb-1 block text-xs font-medium uppercase text-muted">{side === "si" ? "SI" : "Draft BL"}</span>
+                  <span className="mb-1 block text-xs font-medium uppercase text-muted-foreground">{side === "si" ? "SI" : "Draft BL"}</span>
                   {LONG.has(f) ? <textarea rows={2} {...common} /> : <input type="text" {...common} />}
                 </label>
               );
@@ -79,7 +79,7 @@ export function ReviewPanel({ emailId, result, onDone }: { emailId: string; resu
         ))}
       </div>
       <label className="block">
-        <span className="mb-1 block text-xs font-medium uppercase text-muted">Note (optional)</span>
+        <span className="mb-1 block text-xs font-medium uppercase text-muted-foreground">Note (optional)</span>
         <input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. checked against the original PDF" className={inputCls} />
       </label>
       {error && <ErrorBanner message={error} />}

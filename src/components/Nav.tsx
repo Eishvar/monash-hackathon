@@ -22,7 +22,7 @@ export function Nav() {
       <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-8 gap-y-2 px-4 py-3">
         <Link href="/" className="flex items-baseline gap-2">
           <span className="text-base font-semibold tracking-tight">SDOC Verifier</span>
-          <span className="hidden text-xs text-muted sm:inline">SI vs draft BL checker</span>
+          <span className="hidden text-xs text-muted-foreground sm:inline">SI vs draft BL checker</span>
         </Link>
         <nav aria-label="Main" className="-mx-1 flex gap-1 overflow-x-auto">
           {LINKS.map((l) => (
@@ -31,7 +31,7 @@ export function Nav() {
               href={l.href}
               aria-current={active(l.href) ? "page" : undefined}
               className={`flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                active(l.href) ? "bg-surface-2 text-ink" : "text-muted hover:bg-surface-2 hover:text-ink"
+                active(l.href) ? "bg-surface-2 text-ink" : "text-muted-foreground hover:bg-surface-2 hover:text-ink"
               }`}
             >
               {l.label}

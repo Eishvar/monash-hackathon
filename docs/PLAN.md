@@ -1,6 +1,9 @@
 # Plan — 2-day build (started 2026-09-19)
 
 ## Next session
+**UI redesign (gameplan.md) done 2026-09-22**: sidebar shell, dark default, inbox table, split-panel email page + Review Activity drawer, review queue, metrics route map (`src/lib/ports.ts`, `ShippingRouteMap.tsx`), floating Operator Guide. Backend is OpenRouter-only (D19). **Still to do (backend + UI):** CSV export (`/export/csv`) + JSON export buttons (wire the disabled Export button on the Inbox), manual upload endpoint + upload panel on Process, Gmail ingestion route (user does the Google OAuth setup afterwards).
+
+## Previous notes
 **All milestones M0–M6 are done.** Remaining work is yours (Claude cannot do it): (1) record the ~4-minute demo video from
 `docs/DEMO.md`; (2) the repo is **private** — decide whether judges need it public before submitting (tracked files and git
 history contained no keys when checked; only `.env.example` is tracked; re-check if you add anything); (3) submit the live URL,
@@ -63,3 +66,4 @@ Suggested opening prompt: "Read docs/PLAN.md and do M5. Plan first."
 | 09-20 | Prompt: bulk "reminder to submit SI" is GENERAL; rate-limit backoff; token caps; scan explanations | 1.000 | 1.000 | 1.000 | 46/46 | 20/20 | 88% (63 LLM) |
 | 09-20 | M4: processed via API into Supabase (local uvicorn), export from the DB | 1.000 | 1.000 | 1.000 | 46/46 | 20/20 | 88% |
 | 09-20 | M4: reprocessed on the deployed Vercel app + Supabase (`cloud_run.py --reprocess`), export from the DB | 1.000 | 1.000 | 1.000 | 46/46 | 20/20 | 88% |
+| 09-22 | Groq removed: all text + vision on OpenRouter `google/gemini-2.5-flash` (local run, 85 LLM calls, 0 failures) | 1.000 | 1.000 | 1.000 | 46/46 | 20/20 | 88% |
