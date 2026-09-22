@@ -1,4 +1,4 @@
-﻿"""Persistence: a small repository interface, a Supabase implementation and an in-memory one for tests."""
+"""Persistence: a small repository interface, a Supabase implementation and an in-memory one for tests."""
 import threading
 from datetime import datetime, timezone
 from typing import Protocol
@@ -24,7 +24,7 @@ class Repository(Protocol):
     def delete_emails(self, ids: list[str]) -> None: ...
     def get_email(self, email_id: str) -> dict | None: ...
     def list_email_ids(self, only_unprocessed: bool = False, limit: int | None = None, offset: int = 0) -> list[str]: ...
-    def list_emails(self, category: str | None, status: str | None, limit: int, offset: int, preview: bool = False) -> list[dict]: ...
+    def list_emails(self, category: str | None, status: str | None, limit: int, offset: int, preview: bool = False, q: str | None = None) -> list[dict]: ...
     def upsert_result(self, result: dict) -> None: ...
     def get_result(self, email_id: str) -> dict | None: ...
     def all_results(self, columns: str = "*") -> list[dict]: ...
@@ -96,15 +96,22 @@ class SupabaseRepo:
             ids = [i for i in ids if i not in done]
         return ids[offset : offset + limit] if limit is not None else ids[offset:]
 
-    def list_emails(self, category: str | None, status: str | None, limit: int, offset: int, preview: bool = False) -> list[dict]:
+    def list_emails(self, category: str | None, status: str | None, limit: int, offset: int, preview: bool = False, q: str | None = None) -> list[dict]:
         cols = "category,status,review_reason,has_defect,defect_fields,decided_by,reviewed,processing_error"
         embed = "results!inner" if (category or status) else "results"
-        q = self.c.table("emails").select(f"email_id,sender,subject,attachments{',body' if preview else ''},{embed}({cols})")
+        query = self.c.table("emails").select(f"email_id,sender,subject,attachments{',body' if preview else ''},{embed}({cols})")
         if category:
-            q = q.eq("results.category", category)
+            query = query.eq("results.category", category)
         if status:
-            q = q.eq("results.status", status)
-        rows = q.order("email_id").range(offset, offset + limit - 1).execute().data
+            query = query.eq("results.status", status)
+        if q and q.strip():
+            term = q.strip()
+            if term.isdigit():
+                padded = f"email_{term.zfill(3)}"
+                query = query.or_(f"email_id.ilike.%{term}%,email_id.eq.{padded},subject.ilike.%{term}%,sender.ilike.%{term}%")
+            else:
+                query = query.or_(f"email_id.ilike.%{term}%,subject.ilike.%{term}%,sender.ilike.%{term}%")
+        rows = query.order("email_id").range(offset, offset + limit - 1).execute().data
         out = []
         for r in rows:
             res = r.pop("results", None)
@@ -200,14 +207,25 @@ class MemoryRepo:
         ids = sorted(i for i in self.emails if not (only_unprocessed and i in self.results))
         return ids[offset : offset + limit] if limit is not None else ids[offset:]
 
-    def list_emails(self, category, status, limit, offset, preview=False):
+    def list_emails(self, category, status, limit, offset, preview=False, q=None):
         rows = []
+        term = q.strip().lower() if q and q.strip() else None
+        padded = f"email_{term.zfill(3)}" if term and term.isdigit() else ""
         for i in sorted(self.emails):
             e, res = self.emails[i], self.results.get(i)
             if (category or status) and res is None:
                 continue
             if category and res["category"] != category or status and res["status"] != status:
                 continue
+            if term:
+                match = (
+                    term in e["email_id"].lower()
+                    or (padded and e["email_id"].lower() == padded)
+                    or term in (e.get("subject") or "").lower()
+                    or term in (e.get("sender") or "").lower()
+                )
+                if not match:
+                    continue
             row = {k: e[k] for k in ("email_id", "sender", "subject", "attachments")} | {"result": res}
             rows.append(row | {"snippet": snippet(e.get("body"))} if preview else row)
         return rows[offset : offset + limit]

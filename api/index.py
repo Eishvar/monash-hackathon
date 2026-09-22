@@ -64,8 +64,9 @@ def health() -> dict:
 @app.get("/api/py/emails")
 def list_emails(category: str | None = Query(None, pattern="^[A-Z_]{1,20}$"), status: str | None = Query(None, pattern="^[A-Z_]{1,20}$"),
                 limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0), preview: bool = False,
+                q: str | None = Query(None, max_length=100),
                 svc: Service = Depends(get_service)):
-    return svc.list_emails(category, status, limit, offset, preview)
+    return svc.list_emails(category, status, limit, offset, preview, q=q)
 
 
 @app.get("/api/py/emails/{email_id}")

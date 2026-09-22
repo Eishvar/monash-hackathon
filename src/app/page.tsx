@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronRight, FileJson, FileSpreadsheet } from "lucide-react";
+import { ChevronDown, ChevronRight, FileJson, FileSpreadsheet, Search, X } from "lucide-react";
 import { apiGet, CATEGORY_LABEL, type Category, type EmailRow, type Metrics, type Status } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { displayId, friendlySubject } from "@/lib/subject";
@@ -136,23 +136,54 @@ const HEAD = "px-3 py-3 text-xs font-medium uppercase tracking-wider text-muted-
 export default function Page() {
   const router = useRouter();
   const [status, setStatus] = useState<Status | "">("");
-  const query = status ? `category=BL_COMPARISON&status=${status}` : "";
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 250);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const query = (() => {
+    const parts: string[] = [];
+    if (status) parts.push("category=BL_COMPARISON", `status=${status}`);
+    if (debouncedSearch.trim()) parts.push(`q=${encodeURIComponent(debouncedSearch.trim())}`);
+    return parts.join("&");
+  })();
+
   const { rows, loading, done, error, busy, loadMore } = useEmails(query);
   const { data: m, error: metricsError } = useApi<Metrics>("/metrics");
 
   return (
     <>
       <div className="mb-6 flex items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
-          <p className="mt-1 text-sm text-muted-foreground">SI vs draft BL verification — every email is triaged and checked field by field.</p>
-        </div>
+        <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
         <ExportMenu />
       </div>
       {(error || metricsError) && <div className="mb-4"><ErrorBanner message={error ?? metricsError ?? ""} /></div>}
 
-      <div className="mb-3">
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <StatusTabs value={status} onChange={setStatus} counts={m?.bl_comparison_status ?? null} total={m ? m.total_emails : null} />
+        <div className="relative w-full sm:w-80">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search email ID (e.g. 516), subject, sender..."
+            aria-label="Search emails"
+            className="w-full rounded-lg border border-border bg-card py-1.5 pl-9 pr-8 text-sm outline-none transition-colors focus:border-ring"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border bg-card">
@@ -179,7 +210,7 @@ export default function Page() {
             ) : rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="p-8 text-center text-sm text-muted-foreground">
-                  {status ? "No emails with this status." : "Nothing here yet. Open Process to run the inbox."}
+                  {debouncedSearch ? `No emails matching "${debouncedSearch}".` : status ? "No emails with this status." : "Nothing here yet. Open Process to run the inbox."}
                 </TableCell>
               </TableRow>
             ) : (
@@ -235,7 +266,11 @@ export default function Page() {
           </button>
         </div>
       )}
-      {!loading && rows.length > 0 && <p className="mt-3 text-center text-xs text-muted-foreground">{rows.length} shown</p>}
+      {!loading && rows.length > 0 && (
+        <p className="mt-3 text-center text-xs text-muted-foreground">
+          {rows.length} shown{debouncedSearch ? ` for "${debouncedSearch}"` : ""}
+        </p>
+      )}
     </>
   );
 }

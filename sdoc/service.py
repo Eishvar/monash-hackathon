@@ -1,4 +1,4 @@
-﻿"""Application service: process emails into the database, human review with recompute + audit, export, metrics.
+"""Application service: process emails into the database, human review with recompute + audit, export, metrics.
 
 The API layer (api/index.py) only routes requests here. Everything is written against the `Repository` and
 `AttachmentStore` interfaces so it runs on Supabase in the cloud and on in-memory fakes in tests."""
@@ -160,8 +160,8 @@ class Service:
         return self._reset(is_upload)
 
     # -- reading ---------------------------------------------------------------------------------------------
-    def list_emails(self, category=None, status=None, limit=50, offset=0, preview=False) -> list[dict]:
-        return self.repo.list_emails(category, status, min(limit, 200), offset, preview)
+    def list_emails(self, category=None, status=None, limit=50, offset=0, preview=False, q: str | None = None) -> list[dict]:
+        return self.repo.list_emails(category, status, min(limit, 200), offset, preview, q=q)
 
     def email_detail(self, email_id: str) -> dict:
         email = self.repo.get_email(email_id)
