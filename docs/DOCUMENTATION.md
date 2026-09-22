@@ -84,6 +84,8 @@ The email page shows it as "How this was decided"; the metrics page aggregates s
 - **Repository and store interfaces** (`Repository`, `AttachmentStore`) with Supabase and in-memory implementations, so the same
   service code runs in the cloud and in tests. One Supabase client per thread (the HTTP/2 connection is not thread-safe).
 - **Serverless-aware processing**: batches are time-budgeted to fit the function limit; the Process page drives them.
+- **Inbox search**: a debounced query on the inbox matches email ID, subject or sender (`GET /emails?q=`), server-side in
+  both the Supabase and in-memory repositories so results stay paginated.
 - **Security posture**: keys only in server environment variables; row-level security on with no public policies; private
   bucket; request sizes capped; email bodies treated as untrusted input.
 - **REST API** for integration: `/emails`, `/emails/{id}`, `/process/{id}`, `/process-batch`, `/review-queue`, `/reviews/{id}`,

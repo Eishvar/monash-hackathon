@@ -138,7 +138,7 @@ in `.env`. Defaults live in one block in `sdoc/config.py`. See `.env.example`.
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/health` | Liveness and which settings are configured (booleans only) |
-| GET | `/emails?category&status&limit&offset` | Inbox with each email's result |
+| GET | `/emails?category&status&limit&offset&q` | Inbox with each email's result; `q` searches ID, subject, sender |
 | GET | `/emails/{id}` | Email, result (side-by-side fields, explanation, notes), audit trail |
 | POST | `/process/{id}` | Process or retry one email |
 | POST | `/process-batch` | Process a small batch (≤ 50) inside the serverless time budget |
