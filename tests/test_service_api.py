@@ -389,3 +389,56 @@ def test_pipeline_stats_funnel_counts_the_cascade(client, svc):
     assert (f["emails"], f["decided_by_rules"], f["needed_ai"]) == (5, 5, 0)
     assert (f["bl_comparisons"], f["ok"], f["mismatch"], f["needs_review"]) == (4, 2, 1, 1)
     assert (f["vision_used"], f["human_reviewed"]) == (0, 1)
+
+
+def test_result_carries_a_decision_trace_and_stage_stats_summarise_it(client, svc):
+    svc.process_batch(limit=10)
+    steps = svc.repo.get_result("email_002")["trace"]
+    assert [s["stage"] for s in steps] == ["classify", "parse", "parse", "compare_decide"]
+    assert steps[1]["role"] == "SI" and steps[1]["fields_found"] == 7 and steps[3]["status"] == "MISMATCH"
+    assert all(s["method"] == "rule" and s["ms"] >= 0 for s in steps[:3]) and steps[3]["method"] == "code"
+    stats = client.get("/api/py/metrics/pipeline").json()
+    assert stats["traced"] == 5 and stats["stages"]["classify"]["count"] == 5
+    assert stats["stages"]["parse"]["by_method"] == {"rule": 6}  # 3 comparisons x (SI + BL)
+
+
+def test_llm_steps_are_marked_from_usage_counters():
+    from sdoc.trace import Trace
+
+    llm = SimpleNamespace(usage=SimpleNamespace(calls=0, cache_hits=0))
+    tr = Trace(llm)
+    with tr.step("classify"):
+        pass
+    with tr.step("explain", method="llm") as rec:
+        llm.usage.cache_hits += 1
+    with tr.step("vision") as rec:
+        llm.usage.calls += 1
+    assert [(s["stage"], s["method"]) for s in tr.steps] == [("classify", "rule"), ("explain", "llm"), ("vision", "llm")]
+    assert "llm_calls" not in tr.steps[0] and tr.steps[1]["cache_hits"] == 1 and tr.steps[2]["llm_calls"] == 1
+
+
+def test_supabase_repo_survives_a_missing_trace_column():
+    from sdoc.db import SupabaseRepo
+
+    saved = []
+
+    class Table:
+        def upsert(self, row):
+            self.row = row
+            return self
+
+        def execute(self):
+            if "trace" in self.row:
+                raise RuntimeError("Could not find the 'trace' column of 'results' in the schema cache")
+            saved.append(self.row)
+
+    class Client:
+        def table(self, name):
+            return Table()
+
+    repo = SupabaseRepo(Client())
+    repo.upsert_result({"email_id": "e1", "trace": [{"stage": "classify"}]})
+    repo.upsert_result({"email_id": "e2", "trace": []})
+    assert [r["email_id"] for r in saved] == ["e1", "e2"] and all("trace" not in r for r in saved) and repo._no_trace
+    with pytest.raises(ZeroDivisionError):
+        SupabaseRepo(SimpleNamespace(table=lambda n: SimpleNamespace(upsert=lambda r: SimpleNamespace(execute=lambda: 1 / 0)))).upsert_result({"email_id": "x"})

@@ -1,4 +1,4 @@
-"""Per-email pipeline: classify -> (BL_COMPARISON) parse SI/BL -> LLM gap-fill / vision -> compare -> adjudicate ->
+﻿"""Per-email pipeline: classify -> (BL_COMPARISON) parse SI/BL -> LLM gap-fill / vision -> compare -> adjudicate ->
 decide -> explain. Rules go first; the LLM is used only where they abstain. Code makes the final decision."""
 import re
 from dataclasses import dataclass, field
@@ -15,6 +15,7 @@ from sdoc.llm import LLM, LLMError
 from sdoc.parse import Doc, read_document
 from sdoc.parse.render import render_pdf_pages
 from sdoc.store import AttachmentStore, LocalStore
+from sdoc.trace import Trace
 
 
 @dataclass
@@ -35,15 +36,19 @@ class Pipeline:
         self.llm = llm
         self.root = root
         self.store = store or LocalStore(root)
+        self._trace = Trace(llm)
 
     # -- stages ------------------------------------------------------------------------------------------------
     def _classify(self, email: dict, notes: list[str]) -> Classification:
-        cls = classify(email["body"], email["attachments"])
-        if not cls.matched and self.llm:
-            try:
-                return classify_llm(self.llm, email["body"], email["attachments"])
-            except LLMError as exc:
-                notes.append(f"classify LLM failed (kept rule default): {exc}")
+        with self._trace.step("classify") as rec:
+            cls = classify(email["body"], email["attachments"])
+            if not cls.matched and self.llm:
+                try:
+                    cls = classify_llm(self.llm, email["body"], email["attachments"])
+                    rec["method"] = "llm"
+                except LLMError as exc:
+                    notes.append(f"classify LLM failed (kept rule default): {exc}")
+            rec["category"] = cls.category
         return cls
 
     def _load_docs(self, attachments: list[str], notes: list[str]) -> tuple[dict[str, Doc], dict[str, bytes], bool]:
@@ -52,18 +57,22 @@ class Pipeline:
         used_llm = False
         for name in attachments:
             data = self.store.read(name)
-            doc = read_document(name, data)
-            role = _role(name, doc)
+            with self._trace.step("parse", format=name.rsplit(".", 1)[-1].lower()) as rec:
+                doc = read_document(name, data)
+                role = _role(name, doc)
+                rec.update(role=role, fields_found=sum(bool(v) for v in doc.fields.values()), unreadable=bool(doc.unreadable))
             if not role or role in docs:
                 continue
             if self.llm and needs_llm_extraction(doc):
-                try:
-                    filled = fill_gaps(doc, llm_extract(self.llm, doc, role))
-                    if filled:
-                        used_llm = True
-                        notes.append(f"{role}: LLM filled {filled}")
-                except LLMError as exc:
-                    notes.append(f"{role}: LLM extraction failed: {exc}")
+                with self._trace.step("extract_llm", role=role) as rec:
+                    try:
+                        filled = fill_gaps(doc, llm_extract(self.llm, doc, role))
+                        rec["filled"] = len(filled) if filled else 0
+                        if filled:
+                            used_llm = True
+                            notes.append(f"{role}: LLM filled {filled}")
+                    except LLMError as exc:
+                        notes.append(f"{role}: LLM extraction failed: {exc}")
             docs[role], blobs[role] = doc, data
         return docs, blobs, used_llm
 
@@ -77,11 +86,12 @@ class Pipeline:
                 images = render_pdf_pages(blobs[role])
                 if not images:
                     continue
-                try:
-                    suggested[role] = vision_extract(self.llm, images, role)
-                    notes.append(f"{role}: vision LLM extracted suggested values from scan")
-                except LLMError as exc:
-                    notes.append(f"{role}: vision extraction failed: {exc}")
+                with self._trace.step("vision", role=role, pages=len(images)):
+                    try:
+                        suggested[role] = vision_extract(self.llm, images, role)
+                        notes.append(f"{role}: vision LLM extracted suggested values from scan")
+                    except LLMError as exc:
+                        notes.append(f"{role}: vision extraction failed: {exc}")
         if not suggested:
             return None
         si = suggested.get("SI") or (docs["SI"] if not docs["SI"].unreadable else None)
@@ -93,22 +103,28 @@ class Pipeline:
     def compare(self, attachments: list[str], notes: list[str]) -> tuple[Decision, bool]:
         docs, blobs, used_llm = self._load_docs(attachments, notes)
         si, bl = docs.get("SI"), docs.get("BL")
-        d = decide(si, bl)
+        with self._trace.step("compare_decide", method="code") as rec:
+            d = decide(si, bl)
+            rec["status"] = d.status
         if d.status == "NEEDS_REVIEW" and d.review_reason == "unreadable" and si and bl:
             if (prov := self._suggest_from_scans(docs, blobs, notes)) is not None:
                 d.provisional = prov.fields
                 used_llm = True
         elif d.status == "MISMATCH" and self.llm:
-            try:
-                if cleared := cleared_fields(self.llm, d.fields):
-                    notes.append(f"adjudicator judged formatting-only: {sorted(cleared)}")
-                    d, used_llm = decide(si, bl, cleared), True
-            except LLMError as exc:
-                notes.append(f"adjudication failed (kept mismatch): {exc}")
+            with self._trace.step("adjudicate", method="llm", candidates=len(d.defect_fields)) as rec:
+                try:
+                    cleared = cleared_fields(self.llm, d.fields)
+                    rec["cleared"] = len(cleared)
+                    if cleared:
+                        notes.append(f"adjudicator judged formatting-only: {sorted(cleared)}")
+                        d, used_llm = decide(si, bl, cleared), True
+                except LLMError as exc:
+                    notes.append(f"adjudication failed (kept mismatch): {exc}")
         return d, used_llm
 
     # -- public --------------------------------------------------------------------------------------------------
     def process_email(self, email: dict) -> Result:
+        self._trace = Trace(self.llm)
         notes: list[str] = []
         cls = self._classify(email, notes)
         record = {
@@ -130,10 +146,12 @@ class Pipeline:
             details["fields"] = [vars(r) for r in d.fields]
             details["provisional_fields"] = [vars(r) for r in d.provisional]
             if d.status != "OK" and self.llm:
-                try:
-                    details["explanation"] = explain(self.llm, d)
-                except LLMError as exc:
-                    notes.append(f"explanation failed: {exc}")
+                with self._trace.step("explain", method="llm"):
+                    try:
+                        details["explanation"] = explain(self.llm, d)
+                    except LLMError as exc:
+                        notes.append(f"explanation failed: {exc}")
+        details["trace"] = self._trace.steps
         return Result(record, details)
 
     def process_inbox(self) -> dict[str, Result]:

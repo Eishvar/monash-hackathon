@@ -1,4 +1,4 @@
-"""Application service: process emails into the database, human review with recompute + audit, export, metrics.
+﻿"""Application service: process emails into the database, human review with recompute + audit, export, metrics.
 
 The API layer (api/index.py) only routes requests here. Everything is written against the `Repository` and
 `AttachmentStore` interfaces so it runs on Supabase in the cloud and on in-memory fakes in tests."""
@@ -44,6 +44,7 @@ def result_row(email_id: str, res: Result, run_id: str | None) -> dict:
         "provisional_fields": res.details.get("provisional_fields", []),
         "explanation": res.details.get("explanation"),
         "notes": res.details.get("notes", []),
+        "trace": res.details.get("trace", []),
         "processing_error": None,
         "reviewed": False,
         "run_id": run_id,
@@ -269,7 +270,11 @@ class Service:
 
     def pipeline_stats(self) -> dict:
         """How the cascade decided every email (rules -> AI -> vision -> human), from columns already stored."""
-        rows = self.repo.all_results("email_id,category,status,review_reason,decided_by,reviewed,provisional_fields")
+        cols = "email_id,category,status,review_reason,decided_by,reviewed,provisional_fields"
+        try:
+            rows = self.repo.all_results(cols + ",trace")
+        except Exception:  # the `trace` column is added by a schema line the operator applies separately
+            rows = self.repo.all_results(cols)
         bl = [r for r in rows if r["category"] == "BL_COMPARISON"]
         funnel = {
             "emails": len(rows),
@@ -282,7 +287,22 @@ class Service:
             "vision_used": sum(bool(r.get("provisional_fields")) for r in rows),
             "human_reviewed": sum(bool(r.get("reviewed")) for r in rows),
         }
-        return {"funnel": funnel, "stages": {}}
+        by_stage: dict[str, list[dict]] = {}
+        traced = 0
+        for r in rows:
+            steps = r.get("trace") or []
+            traced += bool(steps)
+            for st in steps:
+                by_stage.setdefault(st["stage"], []).append(st)
+        stages = {}
+        for name, steps in by_stage.items():
+            ms = sorted(s.get("ms", 0) for s in steps)
+            methods: dict[str, int] = {}
+            for s in steps:
+                methods[s["method"]] = methods.get(s["method"], 0) + 1
+            stages[name] = {"count": len(steps), "by_method": methods, "p50_ms": ms[len(ms) // 2],
+                            "p95_ms": ms[min(len(ms) - 1, int(len(ms) * 0.95))]}
+        return {"funnel": funnel, "stages": stages, "traced": traced}
 
     # -- outputs -----------------------------------------------------------------------------------------------
     def export_submission(self, include_extra: bool = False) -> dict[str, dict]:

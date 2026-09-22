@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from "react";
+﻿import { useState, type ReactNode } from "react";
 import { ChevronDown, CircleAlert, CircleCheck, Info, OctagonX, Sparkles, TriangleAlert, UserCheck, type LucideIcon } from "lucide-react";
-import { CATEGORY_LABEL, describeReview, FIELD_LABEL, FIELDS, STATUS_LABEL, type FieldRow, type Result, type Review } from "@/lib/api";
+import { CATEGORY_LABEL, describeReview, FIELD_LABEL, FIELDS, STATUS_LABEL, type FieldRow, type Result, type Review, type TraceStep } from "@/lib/api";
+import { traceChip } from "@/lib/trace";
 import { StatusPill } from "@/components/ui";
 
 /** Titled card used across the report layouts. */
@@ -144,5 +145,28 @@ export function ReviewHistory({ reviews }: { reviews: Review[] }) {
         );
       })}
     </ul>
+  );
+}
+
+/** The cascade for this email, one chip per stage that actually ran. */
+export function DecisionTrace({ steps, reviewed }: { steps: TraceStep[]; reviewed: boolean }) {
+  const chips = steps.map(traceChip);
+  return (
+    <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-2" aria-label="Pipeline stages">
+      {chips.map((c, i) => (
+        <li key={i} className="flex items-center gap-1.5">
+          {i > 0 && <span aria-hidden="true" className="text-muted-foreground">→</span>}
+          <span className={`rounded-md px-2 py-1 text-xs font-medium ${c.ai ? "bg-ai-bg text-ai" : "bg-surface-2 text-muted-foreground"}`}>
+            <span className={c.ai ? "" : "text-foreground"}>{c.label}</span> · {c.parts.join(" · ")}
+          </span>
+        </li>
+      ))}
+      {reviewed && (
+        <li className="flex items-center gap-1.5">
+          <span aria-hidden="true" className="text-muted-foreground">→</span>
+          <span className="rounded-md bg-ok-bg px-2 py-1 text-xs font-medium text-ok">Human review</span>
+        </li>
+      )}
+    </ol>
   );
 }

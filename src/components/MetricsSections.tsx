@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FIELD_LABEL, REASON_LABEL, STATUS_LABEL, type FieldName, type Metrics, type PipelineStats, type ReviewStats } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { Bar, Card, KpiTile, Skeleton } from "@/components/ui";
+import { fmtMs, STAGE_LABEL } from "@/lib/trace";
 import { ReviewStatsTiles } from "@/components/ReviewStatsTiles";
 import validation from "@/data/validation.json";
 import benchmark from "@/data/benchmark.json";
@@ -194,18 +195,6 @@ export function PipelineSection() {
     </section>
   );
 }
-
-export const STAGE_LABEL: Record<string, string> = {
-  classify: "Classify",
-  parse: "Parse documents",
-  extract_llm: "AI field extraction",
-  vision: "Vision read (scans)",
-  compare_decide: "Compare + decide",
-  adjudicate: "Adjudicate mismatches",
-  explain: "Explain",
-};
-
-export const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`);
 
 /** Human-in-the-loop numbers: same tiles as the review queue, plus how often a person changed the verdict. */
 export function HumanSection() {

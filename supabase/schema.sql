@@ -60,3 +60,5 @@ alter table results   enable row level security;
 alter table reviews   enable row level security;
 alter table runs      enable row level security;
 alter table llm_cache enable row level security;
+
+alter table results add column if not exists trace jsonb not null default '[]';  -- decision trace: which stage ran, how, how long

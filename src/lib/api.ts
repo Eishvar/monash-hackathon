@@ -1,4 +1,4 @@
-// Typed client for the FastAPI backend (`/api/py/*`, same origin; proxied to uvicorn in dev, rewritten by vercel.json in prod).
+﻿// Typed client for the FastAPI backend (`/api/py/*`, same origin; proxied to uvicorn in dev, rewritten by vercel.json in prod).
 
 export const FIELDS = [
   "shipper",
@@ -66,12 +66,30 @@ export interface ResultSummary {
   processing_error: string | null;
 }
 
+export interface TraceStep {
+  stage: string;
+  method: "rule" | "llm" | "code";
+  ms: number;
+  role?: string | null;
+  format?: string;
+  fields_found?: number;
+  status?: string;
+  category?: string;
+  cleared?: number;
+  filled?: number;
+  candidates?: number;
+  cache_hits?: number;
+  llm_calls?: number;
+  unreadable?: boolean;
+}
+
 export interface Result extends ResultSummary {
   email_id: string;
   fields: FieldRow[];
   provisional_fields: FieldRow[];
   explanation: string | null;
   notes: string[];
+  trace?: TraceStep[];
   run_id: string | null;
   updated_at: string;
 }

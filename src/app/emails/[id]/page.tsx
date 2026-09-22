@@ -10,7 +10,7 @@ import { displayId, friendlySubject } from "@/lib/subject";
 import { FieldTable } from "@/components/FieldTable";
 import { Modal } from "@/components/Modal";
 import { ReviewPanel } from "@/components/ReviewPanel";
-import { Collapsible, ReviewHistory, Section, VerdictCard } from "@/components/ResultPanel";
+import { Collapsible, DecisionTrace, ReviewHistory, Section, VerdictCard } from "@/components/ResultPanel";
 import { DecidedBy, ErrorBanner, Skeleton, StatusPill, buttonSecondary } from "@/components/ui";
 
 function Detail({ label, children }: { label: string; children: ReactNode }) {
@@ -91,6 +91,12 @@ export default function EmailReport() {
           ) : (
             <>
               <VerdictCard result={result} reviews={data.reviews} />
+
+              {(result.trace?.length ?? 0) > 0 && (
+                <Section title="How this was decided" description="Rules first, AI only where rules abstain, code makes the final call">
+                  <DecisionTrace steps={result.trace ?? []} reviewed={data.reviews.length > 0} />
+                </Section>
+              )}
 
               {result.category === "BL_COMPARISON" && (rows.length > 0 || result.status !== "OK") && (
                 <Section

@@ -1,11 +1,11 @@
-"""Persistence: a small repository interface, a Supabase implementation and an in-memory one for tests."""
+﻿"""Persistence: a small repository interface, a Supabase implementation and an in-memory one for tests."""
 import threading
 from datetime import datetime, timezone
 from typing import Protocol
 
 RESULT_COLUMNS = (
     "email_id category status review_reason has_defect defect_fields decided_by fields provisional_fields "
-    "explanation notes processing_error reviewed run_id updated_at"
+    "explanation notes trace processing_error reviewed run_id updated_at"
 ).split()
 PAGE = 1000
 
@@ -66,6 +66,7 @@ class SupabaseHandle:
 class SupabaseRepo:
     def __init__(self, client):
         self.c = client
+        self._no_trace = False  # set when the `trace` column is missing (schema line not applied yet): never fail processing over it
 
     def _all(self, query_builder, order: str) -> list[dict]:
         rows, start = [], 0
@@ -114,7 +115,17 @@ class SupabaseRepo:
         return out
 
     def upsert_result(self, result: dict) -> None:
-        self.c.table("results").upsert({**result, "updated_at": now()}).execute()
+        row = {**result, "updated_at": now()}
+        if self._no_trace:
+            row.pop("trace", None)
+        try:
+            self.c.table("results").upsert(row).execute()
+        except Exception as exc:
+            if "trace" not in row or "trace" not in str(exc):
+                raise
+            self._no_trace = True
+            row.pop("trace")
+            self.c.table("results").upsert(row).execute()
 
     def get_result(self, email_id: str) -> dict | None:
         rows = self.c.table("results").select("*").eq("email_id", email_id).limit(1).execute().data
