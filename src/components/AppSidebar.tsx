@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -31,6 +31,12 @@ const ICONS = {
       <path d="m10 8.5 5 3.5-5 3.5z" />
     </>,
   ),
+  review: icon(
+    <>
+      <path d="M9 11l3 3 8-8" />
+      <path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9" />
+    </>,
+  ),
   metrics: icon(<path d="M4 20V10M10 20V4M16 20v-8M22 20H2" />),
 };
 
@@ -39,7 +45,8 @@ const SECTIONS = [
     label: "Platform",
     links: [
       { href: "/gmail", label: "Gmail", icon: ICONS.gmail, active: (p: string) => p.startsWith("/gmail") },
-      { href: "/", label: "Inbox", icon: ICONS.inbox, active: (p: string) => p === "/" || p.startsWith("/emails") || p.startsWith("/review") },
+      { href: "/", label: "Inbox", icon: ICONS.inbox, active: (p: string) => p === "/" || p.startsWith("/emails") },
+      { href: "/review", label: "Review queue", icon: ICONS.review, active: (p: string) => p.startsWith("/review") },
       { href: "/process", label: "Process", icon: ICONS.process, active: (p: string) => p.startsWith("/process") },
     ],
   },

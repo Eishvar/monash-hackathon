@@ -1,14 +1,21 @@
-import type { ReviewStats } from "@/lib/api";
-import { KpiTile } from "@/components/ui";
+﻿import type { ReviewStats } from "@/lib/api";
 
-/** The four human-in-the-loop numbers, shared by the review queue and the metrics page. */
+/** Human-in-the-loop numbers as one compact strip (review queue header and metrics page). */
 export function ReviewStatsTiles({ stats }: { stats: ReviewStats }) {
+  const items = [
+    { label: "waiting for a person", value: stats.queue_open, warn: stats.queue_open > 0 },
+    { label: "reviewed", value: stats.total },
+    { label: "corrected", value: stats.corrected },
+    { label: "verdicts changed", value: stats.verdict_changed },
+  ];
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      <KpiTile label="Waiting for a person" value={stats.queue_open} tone={stats.queue_open ? "warn" : "ok"} hint="escalated, not yet reviewed" />
-      <KpiTile label="Reviewed" value={stats.total} hint={`${stats.confirmed} confirmed`} />
-      <KpiTile label="Corrections made" value={stats.corrected} hint="values changed by a person" />
-      <KpiTile label="Verdicts changed by humans" value={stats.verdict_changed} hint="status differs after review" />
-    </div>
+    <dl className="flex flex-wrap divide-x divide-border rounded-xl border border-border bg-card">
+      {items.map((i) => (
+        <div key={i.label} className="flex min-w-[8.5rem] flex-1 items-baseline gap-2 px-4 py-3">
+          <dd className={`text-xl font-semibold tabular-nums ${i.warn ? "text-warn" : ""}`}>{i.value}</dd>
+          <dt className="text-xs text-muted-foreground">{i.label}</dt>
+        </div>
+      ))}
+    </dl>
   );
 }
